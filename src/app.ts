@@ -165,10 +165,11 @@ export function createApp() {
     const devRouter = express.Router();
     devRouter.get('/last-otp', (req: Request, res: Response) => {
       const { getLastOtp } = require('./shared/email') as typeof import('./shared/email');
-      const email = ((req.query.email as string) ?? '').trim().toLowerCase();
+      // A raw '+' in a query string is decoded to a space; real emails never contain spaces.
+      const email = ((req.query.email as string) ?? '').trim().replace(/ /g, '+').toLowerCase();
       const purpose = (req.query.purpose as string) ?? 'REGISTER';
       const code = getLastOtp(email, purpose);
-      if (!code) return res.status(404).json({ error: 'No OTP found' });
+      if (!code) return res.status(404).json({ error: { code: 'OTP_NOT_FOUND', message: 'No OTP found' } });
       res.json({ code });
     });
     app.use('/dev', devRouter);

@@ -154,7 +154,9 @@ async function seedAdmins() {
   await db.adminUser.upsert({
     where: { email: adminEmail },
     create: { email: adminEmail, passwordHash, fullName: 'Super Admin', role: 'SUPER_ADMIN' },
-    update: {},
+    update: process.env.NODE_ENV !== 'production'
+      ? { passwordHash, isActive: true, mustChangePassword: false }
+      : {},
   });
   console.log(`  ✓ Super Admin: ${adminEmail}`);
 
@@ -168,7 +170,9 @@ async function seedAdmins() {
       await db.adminUser.upsert({
         where: { email: a.email },
         create: { email: a.email, passwordHash, fullName: a.fullName, role: a.role },
-        update: {},
+        update: process.env.NODE_ENV !== 'production'
+          ? { passwordHash, isActive: true, mustChangePassword: false }
+          : {},
       });
       console.log(`  ✓ ${a.role}: ${a.email}`);
     }

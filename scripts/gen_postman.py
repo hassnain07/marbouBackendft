@@ -84,9 +84,12 @@ capture_mfa = 'const jm = pm.response.json(); if (jm.mfaToken) pm.environment.se
 # ── Folder 00 ──────────────────────────────────────────────────────────────────
 f00_pre = '\n'.join([
     'pm.environment.set("runId", Date.now().toString());',
-    'pm.environment.set("sellerEmail", "seller+" + pm.environment.get("runId") + "@test.com");',
-    'pm.environment.set("buyerEmail", "buyer+" + pm.environment.get("runId") + "@test.com");',
-    'pm.environment.set("lockEmail", "lock+" + pm.environment.get("runId") + "@test.com");',
+    'const rid = pm.environment.get("runId");',
+    'pm.environment.set("sellerEmail", "seller." + rid + "@test.com");',
+    'pm.environment.set("buyerEmail",  "buyer." + rid + "@test.com");',
+    'pm.environment.set("lockEmail",   "lock." + rid + "@test.com");',
+    'pm.environment.set("changedEmail", "changed." + rid + "@test.com");',
+    'pm.environment.set("sellerPassword", "Password1!");',
 ])
 
 f00 = fold('00 Pre-request and Config', [
@@ -163,9 +166,12 @@ f01 = fold('01 Auth', [
     fetch_otp('sellerEmail', 'RESET'),
     r('POST /auth/password/reset (via OTP)', 'POST', BASE+'/auth/password/reset',
       body={'email': '{{sellerEmail}}', 'code': '{{otp}}', 'newPassword': 'NewPassword1!'},
-      tests='pm.test("200", () => pm.expect(pm.response.code).to.equal(200));'),
+      tests='\n'.join([
+          'pm.test("200", () => pm.expect(pm.response.code).to.equal(200));',
+          'if (pm.response.code === 200) pm.environment.set("sellerPassword", "NewPassword1!");',
+      ])),
     r('POST /auth/login (new password)', 'POST', BASE+'/auth/login',
-      body={'email': '{{sellerEmail}}', 'password': 'NewPassword1!', 'device': {}},
+      body={'email': '{{sellerEmail}}', 'password': '{{sellerPassword}}', 'device': {}},
       tests='\n'.join([
           'pm.test("200", () => pm.expect(pm.response.code).to.equal(200));',
           capture_user,
@@ -238,7 +244,7 @@ f01 = fold('01 Auth', [
       tests='pm.test("401", () => pm.expect(pm.response.code).to.equal(401));'),
     # Re-login after reuse detection revoked the whole family
     r('[NEG] REFRESH REUSE - re-login to restore session', 'POST', BASE+'/auth/login',
-      body={'email': '{{sellerEmail}}', 'password': 'NewPassword1!', 'device': {}},
+      body={'email': '{{sellerEmail}}', 'password': '{{sellerPassword}}', 'device': {}},
       tests='\n'.join([
           'pm.test("200", () => pm.expect(pm.response.code).to.equal(200));',
           capture_user,
@@ -280,7 +286,7 @@ f01 = fold('01 Auth', [
       tests='pm.test("401", () => pm.expect(pm.response.code).to.equal(401));'),
     # Restore valid accessToken for folder 02 Profile
     r('POST /auth/login (restore for profile folder)', 'POST', BASE+'/auth/login',
-      body={'email': '{{sellerEmail}}', 'password': 'NewPassword1!', 'device': {}},
+      body={'email': '{{sellerEmail}}', 'password': '{{sellerPassword}}', 'device': {}},
       tests='\n'.join([
           'pm.test("200", () => pm.expect(pm.response.code).to.equal(200));',
           capture_user,
@@ -354,19 +360,22 @@ f02 = fold('02 Profile', [
           'pm.test("INVALID_PHONE", () => pm.expect(pm.response.json().error.code).to.equal("INVALID_PHONE"));',
       ])),
     r('POST /me/password/change', 'POST', BASE+'/me/password/change',
-      body={'currentPassword': 'NewPassword1!', 'newPassword': 'ChangedPass1!'},
-      tests='pm.test("200", () => pm.expect(pm.response.code).to.equal(200));'),
+      body={'currentPassword': '{{sellerPassword}}', 'newPassword': 'ChangedPass1!'},
+      tests='\n'.join([
+          'pm.test("200", () => pm.expect(pm.response.code).to.equal(200));',
+          'if (pm.response.code === 200) pm.environment.set("sellerPassword", "ChangedPass1!");',
+      ])),
     r('POST /auth/login (changed password)', 'POST', BASE+'/auth/login',
-      body={'email': '{{sellerEmail}}', 'password': 'ChangedPass1!', 'device': {}},
+      body={'email': '{{sellerEmail}}', 'password': '{{sellerPassword}}', 'device': {}},
       tests='\n'.join([
           'pm.test("200", () => pm.expect(pm.response.code).to.equal(200));',
           capture_user,
       ])),
     r('POST /me/email/change', 'POST', BASE+'/me/email/change',
-      body={'newEmail': 'changed+{{runId}}@test.com'},
+      body={'newEmail': '{{changedEmail}}'},
       tests='pm.test("200", () => pm.expect(pm.response.code).to.equal(200));'),
-    r('[OTP] fetch CHANGE_EMAIL for changed+{{runId}}@test.com', 'GET',
-      DEV + '/last-otp?email=changed+{{runId}}@test.com&purpose=CHANGE_EMAIL',
+    r('[OTP] fetch CHANGE_EMAIL for changed email', 'GET',
+      DEV + '/last-otp?email={{changedEmail}}&purpose=CHANGE_EMAIL',
       tests='\n'.join([
           'pm.test("200", () => pm.expect(pm.response.code).to.equal(200));',
           'const _oce = pm.response.json().code;',
@@ -374,17 +383,16 @@ f02 = fold('02 Profile', [
           'pm.environment.set("otp", _oce);',
       ])),
     r('POST /me/email/confirm', 'POST', BASE+'/me/email/confirm',
-      body={'newEmail': 'changed+{{runId}}@test.com', 'code': '{{otp}}'},
+      body={'newEmail': '{{changedEmail}}', 'code': '{{otp}}'},
       tests='\n'.join([
           'pm.test("200", () => pm.expect(pm.response.code).to.equal(200));',
-          '// Store changed email so post-logout logins use the right address',
-          'pm.environment.set("changedEmail", "changed+" + pm.environment.get("runId") + "@test.com");',
+          '// changedEmail was already set in f00_pre; no need to re-set here',
       ])),
     r('POST /auth/logout', 'POST', BASE+'/auth/logout',
       tests='pm.test("200", () => pm.expect(pm.response.code).to.equal(200));'),
     # Re-login after logout so remaining profile tests have a valid token
     r('POST /auth/login (after logout)', 'POST', BASE+'/auth/login',
-      body={'email': '{{changedEmail}}', 'password': 'ChangedPass1!', 'device': {}},
+      body={'email': '{{changedEmail}}', 'password': '{{sellerPassword}}', 'device': {}},
       tests='\n'.join([
           'pm.test("200", () => pm.expect(pm.response.code).to.equal(200));',
           capture_user,
@@ -409,7 +417,7 @@ f02 = fold('02 Profile', [
       tests='pm.test("401", () => pm.expect(pm.response.code).to.equal(401));'),
     # Re-login after DELETE /me/sessions revoked other sessions
     r('POST /auth/login (restore after session revoke)', 'POST', BASE+'/auth/login',
-      body={'email': '{{changedEmail}}', 'password': 'ChangedPass1!', 'device': {}},
+      body={'email': '{{changedEmail}}', 'password': '{{sellerPassword}}', 'device': {}},
       tests='\n'.join([
           'pm.test("200", () => pm.expect(pm.response.code).to.equal(200));',
           capture_user,
@@ -505,12 +513,12 @@ f03 = fold('03 Admin', [
           'pm.test("ok true", () => pm.expect(pm.response.json().ok).to.equal(true));',
       ])),
     r('POST /admin/admins (create moderator)', 'POST', BASE+'/admin/admins',
-      body={'email': 'mod+{{runId}}@marbou.test', 'fullName': 'Test Mod', 'role': 'CONTENT_MODERATOR'},
+      body={'email': 'mod.{{runId}}@marbou.test', 'fullName': 'Test Mod', 'role': 'CONTENT_MODERATOR'},
       tests='\n'.join([
           'pm.test("200", () => pm.expect(pm.response.code).to.equal(200));',
           'pm.test("tempPassword", () => pm.expect(pm.response.json()).to.have.property("tempPassword"));',
           'const jmod = pm.response.json();',
-          'pm.environment.set("modEmail", "mod+" + pm.environment.get("runId") + "@marbou.test");',
+          'pm.environment.set("modEmail", "mod." + pm.environment.get("runId") + "@marbou.test");',
           'pm.environment.set("modTempPassword", jmod.tempPassword);',
       ])),
     r('POST /admin/auth/login (moderator)', 'POST', BASE+'/admin/auth/login',
@@ -564,18 +572,18 @@ f03 = fold('03 Admin', [
       hdrs=[{'key': 'Authorization', 'value': 'Bearer {{modToken}}', 'type': 'text'}],
       tests='pm.test("403", () => pm.expect(pm.response.code).to.equal(403));'),
     r('[NEG] wrong admin password -> 401', 'POST', BASE+'/admin/auth/login',
-      body={'email': '{{adminEmail}}', 'password': 'WrongAdminPass1'},
+      body={'email': 'nobody.admin@marbou.test', 'password': 'WrongAdminPass1'},
       hdrs=[{'key': 'Authorization', 'value': '', 'type': 'text'}],
       tests='\n'.join([
           'pm.test("401", () => pm.expect(pm.response.code).to.equal(401));',
       ])),
     # Finance auditor flow
     r('POST /admin/admins (create finance auditor)', 'POST', BASE+'/admin/admins',
-      body={'email': 'finance+{{runId}}@marbou.test', 'fullName': 'Finance Auditor', 'role': 'FINANCIAL_AUDITOR'},
+      body={'email': 'finance.{{runId}}@marbou.test', 'fullName': 'Finance Auditor', 'role': 'FINANCIAL_AUDITOR'},
       tests='\n'.join([
           'pm.test("200", () => pm.expect(pm.response.code).to.equal(200));',
           'const jfin = pm.response.json();',
-          'pm.environment.set("finEmail", "finance+" + pm.environment.get("runId") + "@marbou.test");',
+          'pm.environment.set("finEmail", "finance." + pm.environment.get("runId") + "@marbou.test");',
           'pm.environment.set("finTempPassword", jfin.tempPassword);',
       ])),
     r('POST /admin/auth/login (finance)', 'POST', BASE+'/admin/auth/login',
@@ -654,7 +662,7 @@ environment = {
         {'key': 'modToken', 'value': '', 'enabled': True},
         {'key': 'sessionId', 'value': '', 'enabled': True},
         {'key': 'configEtag', 'value': '', 'enabled': True},
-        {'key': 'otp', 'value': '', 'enabled': True},
+        {'key': 'sellerPassword', 'value': 'Password1!', 'enabled': True},
         {'key': 'changedEmail', 'value': '', 'enabled': True},
         {'key': 'adminEmail', 'value': 'admin@marbou.test', 'enabled': True},
         {'key': 'adminPassword', 'value': 'Admin#12345', 'enabled': True},
