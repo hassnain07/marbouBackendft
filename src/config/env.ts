@@ -15,6 +15,7 @@ const envSchema = z.object({
   PUBLIC_WEB_URL: z.string().default('http://localhost:3000'),
 
   RUN_CRON: z.string().default('true'),
+  TRUST_PROXY: z.string().optional(),
 
   RATE_LIMIT_STRICT_PER_MIN: z.coerce.number().default(20),
   RATE_LIMIT_NORMAL_PER_MIN: z.coerce.number().default(300),

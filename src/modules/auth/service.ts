@@ -4,7 +4,7 @@ import { randomUUID } from 'crypto';
 import { db } from '../../shared/db';
 import { E } from '../../shared/errors';
 import { env } from '../../config/env';
-import { sha256, randomToken, generateOtp, hashOtp } from '../../shared/crypto';
+import { sha256, randomToken, generateOtp, hashOtp, validatePhone } from '../../shared/crypto';
 import { sendOtpEmail } from '../../shared/email';
 import { sendSms, sendWhatsAppOtp } from '../../shared/sms';
 import { settings } from '../../shared/settings';
@@ -50,7 +50,7 @@ export async function issueTokens(
   });
 
   const accessToken = jwt.sign(
-    { sub: userId, sid: session.id, fam: familyId },
+    { sub: userId, sid: session.id, fam: familyId, type: 'access' },
     env.JWT_USER_SECRET,
     { expiresIn: '15m' },
   );
@@ -74,19 +74,21 @@ export async function register(input: {
   phone?: string;
   language?: string;
 }) {
-  const email = input.email.toLowerCase();
+  const email = input.email.toLowerCase().trim();
   const existing = await db.user.findUnique({ where: { email } });
   if (existing) throw E.conflict('EMAIL_TAKEN');
 
   validatePassword(input.password);
   const passwordHash = await bcrypt.hash(input.password, BCRYPT_ROUNDS);
 
+  const phone = input.phone ? validatePhone(input.phone) : undefined;
+
   const user = await db.user.create({
     data: {
       email,
       passwordHash,
       fullName: input.fullName,
-      phone: input.phone,
+      phone,
       language: (input.language?.toUpperCase() as 'AR' | 'EN') ?? 'AR',
     },
   });
@@ -257,7 +259,13 @@ export async function login(input: {
   const email = input.email.toLowerCase();
 
   // Lockout check
-  await checkLockout(email, input.ip);
+  try {
+    await checkLockout(email, input.ip);
+  } catch (lockErr) {
+    // Record LOCKED outcome (not BAD_PASSWORD) so it doesn't escalate fails
+    await recordLoginEvent({ email, outcome: 'LOCKED', ip: input.ip, device: input.device });
+    throw lockErr;
+  }
 
   const user = await db.user.findUnique({ where: { email } });
 
@@ -362,6 +370,11 @@ export async function socialLogin(input: {
     throw E.badRequest('SOCIAL_TOKEN_INVALID');
   }
 
+  // B06: treat any privaterelay email as unverified regardless of provider
+  if (profile.email?.endsWith('@privaterelay.appleid.com')) {
+    profile = { ...profile, email: undefined, emailVerified: false };
+  }
+
   // Find by social identity
   const existing = await db.socialIdentity.findUnique({
     where: { provider_providerId: { provider: input.provider, providerId: profile.providerId } },
@@ -377,13 +390,27 @@ export async function socialLogin(input: {
     return issueTokens(user.id, input.device, input.ip);
   }
 
-  // Link by verified email
+  // B06: Link by verified email
   if (profile.email && profile.emailVerified) {
     const byEmail = await db.user.findUnique({ where: { email: profile.email.toLowerCase() } });
     if (byEmail) {
+      // B06: reject SUSPENDED on link path
+      if (byEmail.status === 'SUSPENDED') throw E.forbidden('ACCOUNT_SUSPENDED');
+      // B06: pre-registration takeover protection — if existing account email not verified, verify it now
+      const updates: Record<string, unknown> = {};
+      if (!byEmail.emailVerifiedAt) {
+        updates.emailVerifiedAt = new Date();
+        updates.passwordHash = null; // clear unverified password
+        // Revoke existing sessions
+        await db.session.updateMany({ where: { userId: byEmail.id, revokedAt: null }, data: { revokedAt: new Date() } });
+        invalidateUserSessions(byEmail.id);
+      }
       await db.socialIdentity.create({
         data: { userId: byEmail.id, provider: input.provider, providerId: profile.providerId, email: profile.email },
       });
+      if (Object.keys(updates).length) {
+        await db.user.update({ where: { id: byEmail.id }, data: updates });
+      }
       return issueTokens(byEmail.id, input.device, input.ip);
     }
   }
@@ -437,7 +464,7 @@ export async function resetPassword(input: {
 
 // ─── Change password ──────────────────────────────────────────────────────────
 
-export async function changePassword(userId: string, currentPw: string, newPw: string): Promise<void> {
+export async function changePassword(userId: string, currentPw: string, newPw: string, currentSessionId?: string): Promise<void> {
   validatePassword(newPw);
   const user = await db.user.findUniqueOrThrow({ where: { id: userId } });
   if (!user.passwordHash) throw E.badRequest('WRONG_PASSWORD');
@@ -446,6 +473,17 @@ export async function changePassword(userId: string, currentPw: string, newPw: s
   if (currentPw === newPw) throw E.badRequest('SAME_PASSWORD');
   const passwordHash = await bcrypt.hash(newPw, BCRYPT_ROUNDS);
   await db.user.update({ where: { id: userId }, data: { passwordHash } });
+  // Revoke all OTHER sessions (B10)
+  const sessions = await db.session.findMany({
+    where: { userId, revokedAt: null, ...(currentSessionId ? { id: { not: currentSessionId } } : {}) },
+  });
+  if (sessions.length > 0) {
+    await db.session.updateMany({
+      where: { id: { in: sessions.map((s) => s.id) } },
+      data: { revokedAt: new Date() },
+    });
+    for (const s of sessions) invalidateSessionCache(s.id);
+  }
 }
 
 // ─── Change email ─────────────────────────────────────────────────────────────
@@ -460,19 +498,22 @@ export async function requestEmailChange(userId: string, newEmail: string, lang:
 }
 
 export async function confirmEmailChange(userId: string, newEmail: string, code: string, lang: 'ar' | 'en'): Promise<void> {
-  const email = newEmail.toLowerCase();
+  const email = newEmail.toLowerCase().trim();
   await verifyOtp({ email, code, purpose: 'CHANGE_EMAIL', lang });
   await db.user.update({ where: { id: userId }, data: { email, emailVerifiedAt: new Date() } });
+  // Invalidate session cache so requireVerifiedEmail sees the new state immediately (B05)
+  invalidateUserSessions(userId);
 }
 
 // ─── Sessions ─────────────────────────────────────────────────────────────────
 
-export async function listSessions(userId: string) {
-  return db.session.findMany({
+export async function listSessions(userId: string, currentSessionId?: string) {
+  const sessions = await db.session.findMany({
     where: { userId, revokedAt: null },
     orderBy: { lastActiveAt: 'desc' },
-    select: { id: true, deviceName: true, os: true, ip: true, approxLocation: true, lastActiveAt: true, createdAt: true },
+    select: { id: true, deviceId: true, deviceName: true, os: true, ip: true, approxLocation: true, lastActiveAt: true, createdAt: true },
   });
+  return sessions.map((s) => ({ ...s, isCurrent: s.id === currentSessionId }));
 }
 
 export async function revokeSession(userId: string, sessionId: string): Promise<void> {
@@ -504,17 +545,27 @@ export async function listLoginEvents(userId: string) {
 
 // ─── Phone ────────────────────────────────────────────────────────────────────
 
+export async function updatePhone(userId: string, phone: string): Promise<void> {
+  const normalised = validatePhone(phone);
+  // Never alter verifiedPhone (B09)
+  await db.user.update({ where: { id: userId }, data: { phone: normalised } });
+}
+
 export async function requestPhoneOtp(userId: string, phone: string, lang: 'ar' | 'en') {
+  const normalised = validatePhone(phone);
   const smsEnabled = await settings.get<boolean>('flags.otp.sms', false);
   const waEnabled = await settings.get<boolean>('flags.otp.whatsapp', false);
   if (!smsEnabled && !waEnabled) throw E.notFound();
   const channel: OtpChannel = smsEnabled ? 'SMS' : 'WHATSAPP';
-  return requestOtp({ phone, purpose: 'PHONE', channel, userId, lang });
+  return requestOtp({ phone: normalised, purpose: 'PHONE', channel, userId, lang });
 }
 
 export async function verifyPhone(userId: string, phone: string, code: string, lang: 'ar' | 'en'): Promise<void> {
-  await verifyOtp({ phone, code, purpose: 'PHONE', lang });
-  await db.user.update({ where: { id: userId }, data: { verifiedPhone: phone } });
+  const normalised = validatePhone(phone);
+  await verifyOtp({ phone: normalised, code, purpose: 'PHONE', lang });
+  // Only update verifiedPhone, never phone (B09)
+  await db.user.update({ where: { id: userId }, data: { verifiedPhone: normalised } });
+  invalidateUserSessions(userId); // B05
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -525,19 +576,42 @@ async function checkLockout(email: string, ip: string): Promise<void> {
     delaysMin: [1, 5, 15, 60],
   });
 
-  const since = new Date(Date.now() - 60 * 60 * 1000); // last hour
+  const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
-  const [emailFails, ipFails] = await Promise.all([
-    db.loginEvent.count({ where: { email, outcome: 'BAD_PASSWORD', createdAt: { gte: since } } }),
-    db.loginEvent.count({ where: { ip, outcome: 'BAD_PASSWORD', createdAt: { gte: since } } }),
-  ]);
+  // Find last SUCCESS for this email to bound the window
+  const lastSuccess = await db.loginEvent.findFirst({
+    where: { email, outcome: 'SUCCESS' },
+    orderBy: { createdAt: 'desc' },
+  });
+  const failsSince = lastSuccess ? lastSuccess.createdAt : since24h;
 
-  const fails = Math.max(emailFails, ipFails);
-  if (fails >= lockoutCfg.maxFails) {
-    const extra = fails - lockoutCfg.maxFails;
-    const delayMin = lockoutCfg.delaysMin[Math.min(extra, lockoutCfg.delaysMin.length - 1)];
-    const retryAfterSec = delayMin * 60;
-    throw E.tooMany('ACCOUNT_LOCKED', { retryAfterSec });
+  const emailFails = await db.loginEvent.count({
+    where: { email, outcome: 'BAD_PASSWORD', createdAt: { gt: failsSince } },
+  });
+
+  if (emailFails >= lockoutCfg.maxFails) {
+    const lastFail = await db.loginEvent.findFirst({
+      where: { email, outcome: 'BAD_PASSWORD' },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (lastFail) {
+      const extra = emailFails - lockoutCfg.maxFails;
+      const delayMin = lockoutCfg.delaysMin[Math.min(extra, lockoutCfg.delaysMin.length - 1)];
+      const unlockAt = lastFail.createdAt.getTime() + delayMin * 60 * 1000;
+      if (Date.now() < unlockAt) {
+        const retryAfterSec = Math.ceil((unlockAt - Date.now()) / 1000);
+        throw E.tooMany('ACCOUNT_LOCKED', { retryAfterSec });
+      }
+    }
+  }
+
+  // Per-IP: higher threshold (20 fails in 10 min)
+  const ipSince = new Date(Date.now() - 10 * 60 * 1000);
+  const ipFails = await db.loginEvent.count({
+    where: { ip, outcome: 'BAD_PASSWORD', createdAt: { gte: ipSince } },
+  });
+  if (ipFails >= 20) {
+    throw E.tooMany('ACCOUNT_LOCKED', { retryAfterSec: 60 });
   }
 }
 

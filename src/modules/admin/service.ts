@@ -12,7 +12,6 @@ import type { AdminRole } from '@prisma/client';
 
 const BCRYPT_ROUNDS = 12;
 const ACCESS_TTL = '30m';
-const REFRESH_TTL_MS = 8 * 60 * 60 * 1000; // 8h sliding
 
 // ─── Token helpers ────────────────────────────────────────────────────────────
 
@@ -139,12 +138,24 @@ export async function adminLogout(adminId: string): Promise<void> {
 
 // ─── Change password ──────────────────────────────────────────────────────────
 
-export async function adminChangePassword(adminId: string, currentPw: string, newPw: string): Promise<void> {
+export async function adminChangePassword(adminId: string, currentPw: string, newPw: string) {
+  // B07: >= 12 chars with letter and digit
+  if (newPw.length < 12 || !/[a-zA-Z]/.test(newPw) || !/[0-9]/.test(newPw)) {
+    throw E.badRequest('WEAK_PASSWORD');
+  }
   const admin = await db.adminUser.findUniqueOrThrow({ where: { id: adminId } });
   const valid = await bcrypt.compare(currentPw, admin.passwordHash);
   if (!valid) throw E.badRequest('WRONG_PASSWORD');
+  if (currentPw === newPw) throw E.badRequest('SAME_PASSWORD');
   const passwordHash = await bcrypt.hash(newPw, BCRYPT_ROUNDS);
-  await db.adminUser.update({ where: { id: adminId }, data: { passwordHash, mustChangePassword: false } });
+  // B07: bump tokenVersion and return fresh tokens
+  const updated = await db.adminUser.update({
+    where: { id: adminId },
+    data: { passwordHash, mustChangePassword: false, tokenVersion: { increment: 1 } },
+  });
+  const accessToken = signAdminAccess(updated);
+  const refreshToken = signAdminRefresh(updated);
+  return { accessToken, refreshToken, expiresIn: 1800 };
 }
 
 // ─── Get me ───────────────────────────────────────────────────────────────────
@@ -255,8 +266,21 @@ export async function getAllSettings() {
 }
 
 export async function updateSetting(actorId: string, key: string, value: unknown) {
+  // B07: unknown key -> 404
+  const allSettings = await settings.getAll();
+  if (!allSettings.has(key)) throw E.notFound('SETTING_NOT_FOUND');
+
+  // B07: value type must match the default's type
+  const defaultVal = allSettings.get(key);
+  if (defaultVal !== undefined && value !== null) {
+    const expectedType = typeof defaultVal;
+    const actualType = typeof value;
+    if (expectedType !== actualType) throw E.rule('SETTING_INVALID_VALUE');
+  }
+
   const before = await settings.get(key);
   await settings.set(key, value, { type: 'ADMIN', id: actorId });
+  // B07: exactly one audit entry per change (audit is inside settings.set already, but we do it here only)
   await audit.log({
     actor: { type: 'ADMIN', id: actorId },
     action: 'SETTING_CHANGE',
@@ -269,7 +293,11 @@ export async function updateSetting(actorId: string, key: string, value: unknown
 }
 
 export async function updateFlag(actorId: string, key: string, value: boolean) {
+  // B07: flags.* keys only
   const flagKey = key.startsWith('flags.') ? key : `flags.${key}`;
+  if (!flagKey.startsWith('flags.')) throw E.badRequest('SETTING_NOT_FOUND');
+  // B07: value must be boolean
+  if (typeof value !== 'boolean') throw E.rule('SETTING_INVALID_VALUE');
   return updateSetting(actorId, flagKey, value);
 }
 

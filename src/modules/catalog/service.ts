@@ -34,12 +34,17 @@ export async function getConfig() {
   });
 
   const latestRates: Record<string, unknown> = {};
-  const staleThresholdMs = 72 * 60 * 60 * 1000;
+  const staleAlertHours = (all.get('fx.staleAlertHours') as number) ?? 72;
+  const staleSuppressDays = (all.get('fx.staleSuppressDays') as number) ?? 7;
+  const staleThresholdMs = staleAlertHours * 60 * 60 * 1000;
+  const suppressThresholdMs = staleSuppressDays * 24 * 60 * 60 * 1000;
   for (const r of exchangeRates) {
     const key = `${r.base}_${r.quote}`;
     if (!latestRates[key]) {
-      const stale = Date.now() - r.effectiveFrom.getTime() > staleThresholdMs;
-      latestRates[key] = { base: r.base, quote: r.quote, rate: r.rate, stale, effectiveFrom: r.effectiveFrom };
+      const ageMs = Date.now() - r.effectiveFrom.getTime();
+      const stale = ageMs > staleThresholdMs;
+      const suppressed = ageMs > suppressThresholdMs;
+      latestRates[key] = { base: r.base, quote: r.quote, rate: r.rate, stale, suppressed, effectiveFrom: r.effectiveFrom };
     }
   }
 

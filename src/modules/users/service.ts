@@ -27,8 +27,17 @@ export async function updateMe(userId: string, input: {
   if (input.fullName !== undefined) data.fullName = sanitize(input.fullName);
   if (input.bio !== undefined) data.bio = sanitize(input.bio);
   if (input.city !== undefined) data.city = sanitize(input.city);
-  if (input.languages !== undefined) data.languages = input.languages;
-  if (input.contactPrefs !== undefined) data.contactPrefs = input.contactPrefs;
+  if (input.languages !== undefined) {
+    // B10: validate and size-limit languages array
+    if (input.languages.length > 10) throw E.badRequest('TOO_MANY_LANGUAGES');
+    data.languages = input.languages.map((l) => sanitize(String(l)).slice(0, 50));
+  }
+  if (input.contactPrefs !== undefined) {
+    // B10: merge with existing contactPrefs instead of replacing
+    const existing = await db.user.findUniqueOrThrow({ where: { id: userId }, select: { contactPrefs: true } });
+    const current = (existing.contactPrefs as Record<string, unknown>) ?? {};
+    data.contactPrefs = { ...current, ...input.contactPrefs };
+  }
   if (input.language !== undefined) data.language = input.language.toUpperCase();
 
   const user = await db.user.update({ where: { id: userId }, data });
@@ -54,13 +63,22 @@ export async function grantCapability(userId: string, capability: Capability, se
   };
 
   if (capability === 'EMPLOYER' && setup) {
+    // B10: validate and size-limit employer setup JSON
+    const str = JSON.stringify(setup);
+    if (str.length > 4096) throw E.badRequest('SETUP_TOO_LARGE');
     updateData.employerProfile = setup as never;
   }
   if (capability === 'SERVICE_PROVIDER' && setup) {
+    // B10: validate and size-limit service setup JSON
+    const str = JSON.stringify(setup);
+    if (str.length > 4096) throw E.badRequest('SETUP_TOO_LARGE');
     updateData.serviceProfile = setup as never;
   }
 
   await db.user.update({ where: { id: userId }, data: updateData });
+  // B05: invalidate session cache so capability is usable immediately
+  const { invalidateUserSessions } = await import('../../shared/auth');
+  invalidateUserSessions(userId);
   return { capability, granted: true };
 }
 

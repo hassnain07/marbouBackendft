@@ -40,8 +40,7 @@ defineRoute({
   summary: 'Admin change password', tag: 'Admin Auth', auth: 'admin',
   body: z.object({ currentPassword: z.string().min(1), newPassword: z.string().min(1) }),
   handler: async ({ body, admin }) => {
-    await svc.adminChangePassword(admin!.id, body.currentPassword, body.newPassword);
-    return { ok: true };
+    return svc.adminChangePassword(admin!.id, body.currentPassword, body.newPassword);
   },
 });
 
@@ -107,7 +106,7 @@ defineRoute({
 
 defineRoute({
   router: adminRouter, method: 'get', path: '/admin/settings',
-  summary: 'Get all settings', tag: 'Admin', auth: 'admin',
+  summary: 'Get all settings', tag: 'Admin', auth: 'admin', perm: '*',
   handler: async () => svc.getAllSettings(),
 });
 

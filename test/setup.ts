@@ -1,36 +1,29 @@
-import { PrismaClient } from '@prisma/client';
+import { execSync } from 'child_process';
 import dotenv from 'dotenv';
-
-dotenv.config({ path: '.env.test' });
-// fallback to .env if .env.test missing
 dotenv.config();
 
-// Override DB to test DB
-if (!process.env.DATABASE_URL?.includes('marbou_test')) {
-  process.env.DATABASE_URL = process.env.DATABASE_URL?.replace('/marbou?', '/marbou_test?')
-    .replace('/marbou\n', '/marbou_test\n')
-    ?? process.env.DATABASE_URL;
-  // If still no _test suffix, append it
-  if (!process.env.DATABASE_URL?.includes('marbou_test')) {
-    process.env.DATABASE_URL = process.env.DATABASE_URL?.replace(
-      /\/marbou([^_]|$)/,
-      '/marbou_test$1',
-    );
+// Point to test DB
+const base = process.env.DATABASE_URL ?? '';
+const testUrl = base.replace(/\/marbou(\?|$)/, '/marbou_test$1');
+process.env.DATABASE_URL = testUrl;
+
+export async function setup() {
+  if (!testUrl || testUrl === base) {
+    throw new Error('Could not derive marbou_test DATABASE_URL from: ' + base);
+  }
+
+  // Verify connectivity
+  try {
+    execSync(`node node_modules/prisma/build/index.js migrate deploy`, {
+      stdio: 'pipe',
+      env: { ...process.env, DATABASE_URL: testUrl },
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new Error(`Test DB migration failed. Is the DB running? Run: npm run test:setup\n${msg}`);
   }
 }
 
-const db = new PrismaClient();
-
-beforeAll(async () => {
-  // Create test DB if needed and apply migrations
-  try {
-    await db.$queryRawUnsafe('SELECT 1');
-  } catch {
-    console.error('Test DB not available');
-    process.exit(1);
-  }
-});
-
-afterAll(async () => {
-  await db.$disconnect();
-});
+export async function teardown() {
+  // nothing
+}

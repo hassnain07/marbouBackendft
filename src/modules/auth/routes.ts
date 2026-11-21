@@ -92,7 +92,7 @@ defineRoute({
 // POST /auth/refresh
 defineRoute({
   router: authRouter, method: 'post', path: '/auth/refresh',
-  summary: 'Rotate refresh token', tag: 'Auth', auth: 'public',
+  summary: 'Rotate refresh token', tag: 'Auth', auth: 'public', limit: 'strict',
   body: z.object({ refreshToken: z.string().min(1) }),
   handler: async ({ body, req }) => svc.refreshTokens(body.refreshToken, req.ip),
 });
@@ -147,7 +147,10 @@ defineRoute({
 defineRoute({
   router: authRouter, method: 'get', path: '/me/sessions',
   summary: 'List active sessions', tag: 'Auth', auth: 'user',
-  handler: async ({ user }) => svc.listSessions(user!.id),
+  handler: async ({ user, req }) => {
+    const sid = (req as typeof req & { sessionId?: string }).sessionId;
+    return svc.listSessions(user!.id, sid);
+  },
 });
 
 // DELETE /me/sessions/:id
@@ -181,8 +184,9 @@ defineRoute({
   router: authRouter, method: 'post', path: '/me/password/change',
   summary: 'Change password', tag: 'Auth', auth: 'user',
   body: z.object({ currentPassword: z.string().min(1), newPassword: z.string().min(1) }),
-  handler: async ({ body, user }) => {
-    await svc.changePassword(user!.id, body.currentPassword, body.newPassword);
+  handler: async ({ body, user, req }) => {
+    const sid = (req as typeof req & { sessionId?: string }).sessionId;
+    await svc.changePassword(user!.id, body.currentPassword, body.newPassword, sid);
     return { ok: true };
   },
 });
@@ -212,8 +216,7 @@ defineRoute({
   summary: 'Update phone number', tag: 'Auth', auth: 'user',
   body: z.object({ phone: z.string().min(1) }),
   handler: async ({ body, user }) => {
-    const { db } = await import('../../shared/db');
-    await db.user.update({ where: { id: user!.id }, data: { phone: body.phone } });
+    await svc.updatePhone(user!.id, body.phone);
     return { ok: true };
   },
 });

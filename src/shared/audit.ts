@@ -10,8 +10,19 @@ interface AuditEntry {
   after?: unknown;
 }
 
+/** B02: canonical JSON — recursively sort object keys so JSONB round-trips don't break the hash */
+function canonicalJson(value: unknown): string {
+  if (value === null || value === undefined) return 'null';
+  if (typeof value !== 'object' || Array.isArray(value)) return JSON.stringify(value);
+  const obj = value as Record<string, unknown>;
+  const sorted: Record<string, unknown> = {};
+  for (const k of Object.keys(obj).sort()) sorted[k] = obj[k];
+  // recurse into values
+  return '{' + Object.keys(sorted).map((k) => JSON.stringify(k) + ':' + canonicalJson(sorted[k])).join(',') + '}';
+}
+
 function buildPayload(e: AuditEntry, createdAt: Date): string {
-  return JSON.stringify({
+  return canonicalJson({
     actorType: e.actor.type,
     actorId: e.actor.id,
     action: e.action,
@@ -52,7 +63,7 @@ export const audit = {
     });
   },
 
-  async verify(): Promise<{ ok: boolean; firstMismatch?: bigint }> {
+  async verify(): Promise<{ ok: boolean; firstMismatch?: string }> {
     const logs = await db.auditLog.findMany({ orderBy: { id: 'asc' } });
     let prevHash = 'GENESIS';
     for (const log of logs) {
@@ -69,7 +80,8 @@ export const audit = {
       );
       const expected = createHash('sha256').update(prevHash + payload).digest('hex');
       if (expected !== log.hash) {
-        return { ok: false, firstMismatch: log.id };
+        // B02: return string not BigInt
+        return { ok: false, firstMismatch: log.id.toString() };
       }
       prevHash = log.hash;
     }

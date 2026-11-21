@@ -3,6 +3,7 @@ import helmet from 'helmet';
 import cors from 'cors';
 import compression from 'compression';
 import pinoHttp from 'pino-http';
+import swaggerUi from 'swagger-ui-express';
 import { randomUUID } from 'crypto';
 import { env } from './config/env';
 import { errorMiddleware } from './shared/errors';
@@ -14,6 +15,7 @@ import { adminRouter } from './modules/admin/routes';
 import { catalogRouter } from './modules/catalog/routes';
 import { storage } from './shared/storage';
 import { db } from './shared/db';
+import { generateOpenApiSpec } from './shared/openapi';
 import path from 'path';
 import fs from 'fs';
 
@@ -22,6 +24,9 @@ const ADMIN_PATHS = ['/api/v1/admin'];
 
 export function createApp() {
   const app = express();
+
+  // Trust proxy
+  if (env.TRUST_PROXY) app.set('trust proxy', env.TRUST_PROXY);
 
   // ─── Logging ────────────────────────────────────────────────────────────────
   app.use(pinoHttp({
@@ -34,14 +39,31 @@ export function createApp() {
     next();
   });
 
-  // ─── Security ───────────────────────────────────────────────────────────────
-  app.use(helmet());
+  // ─── Security (helmet with CSP relaxed for /docs) ───────────────────────────
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    if (req.path.startsWith('/docs')) {
+      helmet({
+        contentSecurityPolicy: {
+          directives: {
+            defaultSrc: ["'self'"],
+            scriptSrc: ["'self'", "'unsafe-inline'"],
+            styleSrc: ["'self'", "'unsafe-inline'"],
+            imgSrc: ["'self'", 'data:'],
+          },
+        },
+      })(req, res, next);
+    } else {
+      helmet()(req, res, next);
+    }
+  });
 
+  // ─── CORS ───────────────────────────────────────────────────────────────────
   const allowedOrigins = env.CORS_ORIGINS.split(',').map((o) => o.trim());
   app.use(cors({
     origin: (origin, cb) => {
       if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
-      cb(new Error('Not allowed by CORS'));
+      // Return 403, not 500 (B10)
+      cb(null, false);
     },
     credentials: true,
   }));
@@ -81,13 +103,11 @@ export function createApp() {
     const appVersion = req.headers['x-app-version'] as string | undefined;
     const platform = req.headers['x-platform'] as string | undefined;
     if (!appVersion || !platform) return next();
-
     const isExempt =
       EXEMPT_PATHS.some((p) => req.path.startsWith(p)) ||
       ADMIN_PATHS.some((p) => req.path.startsWith(p)) ||
       req.path.startsWith('/dev');
     if (isExempt) return next();
-
     try {
       const minVersion = await settings.get<Record<string, string>>('app.minVersion', {});
       const min = minVersion[platform.toLowerCase()];
@@ -110,13 +130,10 @@ export function createApp() {
   app.get('/media/private/:token', async (req: Request, res: Response) => {
     const result = storage.verifyToken(req.params.token);
     if (!result) return res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Invalid or expired link' } });
-
     const asset = await db.mediaAsset.findUnique({ where: { id: result.mediaId } });
     if (!asset) return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Not found' } });
-
     const buf = storage.readFile(asset.key, true);
     if (!buf) return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'File not found' } });
-
     res.setHeader('Content-Type', asset.mime);
     res.setHeader('Cache-Control', 'private, max-age=300');
     res.send(buf);
@@ -128,33 +145,27 @@ export function createApp() {
   app.use('/api/v1', usersRouter);
   app.use('/api/v1', adminRouter);
 
-  // ─── OpenAPI / Swagger ──────────────────────────────────────────────────────
+  // ─── OpenAPI (generated from registry at runtime) ───────────────────────────
+  let cachedSpec: ReturnType<typeof generateOpenApiSpec> | null = null;
   app.get('/openapi.json', (_req, res) => {
-    try {
-      const spec = require('../openapi.json');
-      res.json(spec);
-    } catch {
-      res.status(404).json({ error: 'openapi.json not generated yet. Run: npm run openapi' });
-    }
+    if (!cachedSpec) cachedSpec = generateOpenApiSpec();
+    res.json(cachedSpec);
   });
 
-  app.use('/docs', (_req: Request, res: Response) => {
-    res.send(`<!DOCTYPE html><html><head><title>MARBOU API</title>
-      <meta charset="utf-8"/>
-      <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css"/>
-    </head><body>
-      <div id="swagger-ui"></div>
-      <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
-      <script>SwaggerUIBundle({url:'/openapi.json',dom_id:'#swagger-ui',presets:[SwaggerUIBundle.presets.apis,SwaggerUIBundle.SwaggerUIStandalonePreset]})</script>
-    </body></html>`);
+  app.use('/docs', swaggerUi.serve);
+  app.get('/docs', (_req: Request, res: Response, next: NextFunction) => {
+    if (!cachedSpec) cachedSpec = generateOpenApiSpec();
+    const html = swaggerUi.generateHTML(cachedSpec);
+    res.send(html);
+    void next;
   });
 
   // ─── Dev helpers ────────────────────────────────────────────────────────────
   if (env.DEV_HELPERS && env.NODE_ENV !== 'production') {
     const devRouter = express.Router();
     devRouter.get('/last-otp', (req: Request, res: Response) => {
-      const { getLastOtp } = require('./shared/email');
-      const email = req.query.email as string;
+      const { getLastOtp } = require('./shared/email') as typeof import('./shared/email');
+      const email = (req.query.email as string ?? '').toLowerCase();
       const purpose = (req.query.purpose as string) ?? 'REGISTER';
       const code = getLastOtp(email, purpose);
       if (!code) return res.status(404).json({ error: 'No OTP found' });

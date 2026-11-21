@@ -2,7 +2,7 @@ import type { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { env } from '../config/env';
 import { db } from './db';
-import { E } from './errors';
+import { AppError, E } from './errors';
 import { hasPerm } from './permissions';
 import type { Capability, AdminRole } from '@prisma/client';
 
@@ -81,18 +81,31 @@ async function resolveSession(sid: string): Promise<AuthUser> {
   return user;
 }
 
+function jwtError(e: unknown): AppError {
+  if (e instanceof Error) {
+    if (e.name === 'TokenExpiredError') return E.unauthorized('TOKEN_EXPIRED');
+    if (
+      e.name === 'JsonWebTokenError' ||
+      e.name === 'NotBeforeError' ||
+      e.name === 'SyntaxError'
+    ) return E.unauthorized();
+  }
+  return E.unauthorized();
+}
+
 export async function requireAuth(req: Request, _res: Response, next: NextFunction): Promise<void> {
   try {
     const token = extractBearer(req);
     if (!token) throw E.unauthorized();
     const payload = jwt.verify(token, env.JWT_USER_SECRET) as AccessPayload;
-    if ((payload as unknown as { role?: string }).role) throw E.unauthorized();
+    // Reject non-access tokens (refresh tokens, mfa tokens)
+    if ((payload as unknown as { type?: string }).type !== 'access') throw E.unauthorized();
     const user = await resolveSession(payload.sid);
     (req as Request & { user: AuthUser; sessionId: string }).user = user;
     (req as Request & { sessionId: string }).sessionId = payload.sid;
     next();
   } catch (e) {
-    next(e instanceof Error && e.name === 'JsonWebTokenError' ? E.unauthorized() : e);
+    next(e instanceof AppError ? e : jwtError(e));
   }
 }
 
@@ -101,7 +114,7 @@ export async function optionalAuth(req: Request, _res: Response, next: NextFunct
     const token = extractBearer(req);
     if (token) {
       const payload = jwt.verify(token, env.JWT_USER_SECRET) as AccessPayload;
-      if (!(payload as unknown as { role?: string }).role) {
+      if ((payload as unknown as { type?: string }).type === 'access') {
         const user = await resolveSession(payload.sid);
         (req as Request & { user: AuthUser; sessionId: string }).user = user;
         (req as Request & { sessionId: string }).sessionId = payload.sid;
@@ -127,6 +140,9 @@ export async function requireAdmin(req: Request, _res: Response, next: NextFunct
     const token = extractBearer(req);
     if (!token) throw E.unauthorized();
     const payload = jwt.verify(token, env.JWT_ADMIN_SECRET) as AdminPayload;
+    // Reject refresh and mfa tokens (B07)
+    if ((payload as unknown as { type?: string; purpose?: string }).type === 'refresh') throw E.unauthorized();
+    if ((payload as unknown as { purpose?: string }).purpose === 'mfa') throw E.unauthorized();
     if (!payload.role) throw E.unauthorized();
 
     const admin = await db.adminUser.findUnique({ where: { id: payload.sub } });
@@ -139,9 +155,24 @@ export async function requireAdmin(req: Request, _res: Response, next: NextFunct
       role: admin.role,
       tokenVersion: admin.tokenVersion,
     };
+
+    // B07: enforce mustChangePassword — block everything except allowed endpoints
+    if (admin.mustChangePassword) {
+      const path = req.path;
+      const allowed = [
+        '/admin/me',
+        '/admin/auth/change-password',
+        '/admin/auth/logout',
+      ];
+      if (!allowed.some((p) => path === p || path.startsWith(p))) {
+        next(E.forbidden('PASSWORD_CHANGE_REQUIRED'));
+        return;
+      }
+    }
+
     next();
   } catch (e) {
-    next(e instanceof Error && e.name === 'JsonWebTokenError' ? E.unauthorized() : e);
+    next(e instanceof AppError ? e : jwtError(e));
   }
 }
 

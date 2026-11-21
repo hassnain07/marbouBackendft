@@ -35,6 +35,8 @@ const MESSAGES: Record<string, LangMap> = {
   SAME_EMAIL: { ar: 'البريد الإلكتروني الجديد مطابق للحالي', en: 'New email is the same as current' },
   SAME_PASSWORD: { ar: 'كلمة المرور الجديدة مطابقة للحالية', en: 'New password is the same as current' },
   WRONG_PASSWORD: { ar: 'كلمة المرور الحالية غير صحيحة', en: 'Current password is incorrect' },
+  INVALID_PHONE: { ar: 'رقم الهاتف غير صالح', en: 'Invalid phone number' },
+  TOKEN_EXPIRED: { ar: 'انتهت صلاحية الرمز', en: 'Token has expired' },
 
   // Admin
   ADMIN_NOT_FOUND: { ar: 'المشرف غير موجود', en: 'Admin not found' },

@@ -366,8 +366,10 @@ describe('Audit log', () => {
     const sa = await createTestAdmin('SUPER_ADMIN');
     await loginAdmin(sa.email); // creates an audit entry
 
-    // Tamper with the first audit log entry
+    // Tamper: disable trigger, corrupt hash, re-enable
+    await db.$executeRawUnsafe(`ALTER TABLE "AuditLog" DISABLE TRIGGER audit_no_update`);
     await db.$executeRawUnsafe(`UPDATE "AuditLog" SET hash = 'tampered' WHERE id = (SELECT MIN(id) FROM "AuditLog")`);
+    await db.$executeRawUnsafe(`ALTER TABLE "AuditLog" ENABLE TRIGGER audit_no_update`);
 
     const { accessToken } = await loginAdmin(sa.email);
     const res = await request(app).get(`${BASE}/admin/audit-logs/verify`)
