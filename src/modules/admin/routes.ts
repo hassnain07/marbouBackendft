@@ -138,7 +138,7 @@ defineRoute({
     from: z.string().optional(),
     to: z.string().optional(),
     limit: z.coerce.number().optional(),
-    cursor: z.string().optional(),
+    cursor: z.coerce.number().optional(),
   }),
   handler: async ({ query }) => svc.getAuditLogs(query),
 });

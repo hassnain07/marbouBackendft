@@ -54,10 +54,10 @@ export async function grantCapability(userId: string, capability: Capability, se
   };
 
   if (capability === 'EMPLOYER' && setup) {
-    updateData.employerProfile = setup;
+    updateData.employerProfile = setup as never;
   }
   if (capability === 'SERVICE_PROVIDER' && setup) {
-    updateData.serviceProfile = setup;
+    updateData.serviceProfile = setup as never;
   }
 
   await db.user.update({ where: { id: userId }, data: updateData });
@@ -117,7 +117,7 @@ export async function getNotifPrefs(userId: string) {
 }
 
 export async function updateNotifPrefs(userId: string, prefs: Record<string, unknown>) {
-  const user = await db.user.update({ where: { id: userId }, data: { notifPrefs: prefs } });
+  const user = await db.user.update({ where: { id: userId }, data: { notifPrefs: prefs as never } });
   return user.notifPrefs;
 }
 
@@ -128,7 +128,7 @@ export async function addDeviceToken(userId: string, token: string, platform: st
   const tokens = (user.deviceTokens as { token: string; platform: string }[]) ?? [];
   if (!tokens.find((t) => t.token === token)) {
     tokens.push({ token, platform });
-    await db.user.update({ where: { id: userId }, data: { deviceTokens: tokens } });
+    await db.user.update({ where: { id: userId }, data: { deviceTokens: tokens as never } });
   }
 }
 
@@ -137,7 +137,7 @@ export async function removeDeviceToken(userId: string, token: string): Promise<
   const tokens = ((user.deviceTokens as { token: string; platform: string }[]) ?? []).filter(
     (t) => t.token !== token,
   );
-  await db.user.update({ where: { id: userId }, data: { deviceTokens: tokens } });
+  await db.user.update({ where: { id: userId }, data: { deviceTokens: tokens as never } });
 }
 
 // ─── Verification request ─────────────────────────────────────────────────────

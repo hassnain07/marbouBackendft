@@ -115,8 +115,8 @@ export function defineRoute<
       security,
       request: {
         ...(o.body ? { body: { content: { 'application/json': { schema: o.body } } } } : {}),
-        ...(o.query ? { query: o.query } : {}),
-        ...(o.params ? { params: o.params } : {}),
+        ...(o.query ? { query: o.query as any } : {}),
+        ...(o.params ? { params: o.params as any } : {}),
       },
       responses: {
         200: { description: 'Success' },
