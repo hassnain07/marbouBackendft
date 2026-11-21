@@ -16,7 +16,7 @@ defineRoute({
   router: authRouter, method: 'post', path: '/auth/register',
   summary: 'Register a new user', tag: 'Auth', auth: 'public', limit: 'strict',
   body: z.object({
-    email: z.string().email(),
+    email: z.string().email().transform((v) => v.trim().toLowerCase()),
     password: z.string().min(1),
     fullName: z.string().min(1).max(100),
     phone: z.string().optional(),
@@ -32,30 +32,38 @@ defineRoute({
   handler: async () => svc.getOtpChannels(),
 });
 
-// POST /auth/otp/request
+// POST /auth/otp/request  — public: REGISTER and RESET only
 defineRoute({
   router: authRouter, method: 'post', path: '/auth/otp/request',
   summary: 'Request an OTP code', tag: 'Auth', auth: 'public', limit: 'strict',
   body: z.object({
-    email: z.string().email().optional(),
+    email: z.string().email().transform((v) => v.trim().toLowerCase()).optional(),
     phone: z.string().optional(),
-    purpose: z.enum(['REGISTER', 'RESET', 'CHANGE_EMAIL', 'PHONE', 'DELETE_ACCOUNT']),
+    // B3: public route only accepts REGISTER and RESET
+    purpose: z.enum(['REGISTER', 'RESET']),
     channel: z.enum(['EMAIL', 'SMS', 'WHATSAPP']).optional(),
-  }),
-  handler: async ({ body, lang }) => svc.requestOtp({ ...body, lang }),
+  })
+    .refine((d) => d.email || d.phone, { message: 'email or phone required' })
+    .refine((d) => {
+      const ch = d.channel ?? 'EMAIL';
+      if (ch === 'EMAIL') return !!d.email;
+      return !!d.phone;
+    }, { message: 'EMAIL channel requires email; SMS/WHATSAPP require phone' }),
+  handler: async ({ body, lang }) => svc.requestOtpPublic({ ...body, lang }),
 });
 
-// POST /auth/otp/verify
+// POST /auth/otp/verify  — public: REGISTER and RESET only
 defineRoute({
   router: authRouter, method: 'post', path: '/auth/otp/verify',
   summary: 'Verify an OTP code', tag: 'Auth', auth: 'public', limit: 'strict',
   body: z.object({
-    email: z.string().email().optional(),
+    email: z.string().email().transform((v) => v.trim().toLowerCase()).optional(),
     phone: z.string().optional(),
     code: z.string().length(6),
-    purpose: z.enum(['REGISTER', 'RESET', 'CHANGE_EMAIL', 'PHONE', 'DELETE_ACCOUNT']),
+    // B3: public route only accepts REGISTER and RESET
+    purpose: z.enum(['REGISTER', 'RESET']),
     device: deviceSchema.optional(),
-  }),
+  }).refine((d) => d.email || d.phone, { message: 'email or phone required' }),
   handler: async ({ body, lang, req }) =>
     svc.verifyOtp({ ...body, device: body.device, ip: req.ip ?? '', lang }),
 });
@@ -65,7 +73,7 @@ defineRoute({
   router: authRouter, method: 'post', path: '/auth/login',
   summary: 'Login with email and password', tag: 'Auth', auth: 'public', limit: 'strict',
   body: z.object({
-    email: z.string().email(),
+    email: z.string().email().transform((v) => v.trim().toLowerCase()),
     password: z.string().min(1),
     device: deviceSchema.optional().default({}),
   }),
@@ -112,7 +120,7 @@ defineRoute({
 defineRoute({
   router: authRouter, method: 'post', path: '/auth/password/forgot',
   summary: 'Request password reset OTP', tag: 'Auth', auth: 'public', limit: 'strict',
-  body: z.object({ email: z.string().email() }),
+  body: z.object({ email: z.string().email().transform((v) => v.trim().toLowerCase()) }),
   handler: async ({ body, lang }) => { await svc.forgotPassword(body.email, lang); return { ok: true }; },
 });
 
@@ -120,7 +128,11 @@ defineRoute({
 defineRoute({
   router: authRouter, method: 'post', path: '/auth/password/reset',
   summary: 'Reset password with OTP', tag: 'Auth', auth: 'public', limit: 'strict',
-  body: z.object({ email: z.string().email(), code: z.string().length(6), newPassword: z.string().min(1) }),
+  body: z.object({
+    email: z.string().email().transform((v) => v.trim().toLowerCase()),
+    code: z.string().length(6),
+    newPassword: z.string().min(1),
+  }),
   handler: async ({ body, lang }) => { await svc.resetPassword({ ...body, lang }); return { ok: true }; },
 });
 
@@ -195,7 +207,7 @@ defineRoute({
 defineRoute({
   router: authRouter, method: 'post', path: '/me/email/change',
   summary: 'Request email change OTP', tag: 'Auth', auth: 'user', limit: 'strict',
-  body: z.object({ newEmail: z.string().email() }),
+  body: z.object({ newEmail: z.string().email().transform((v) => v.trim().toLowerCase()) }),
   handler: async ({ body, user, lang }) => svc.requestEmailChange(user!.id, body.newEmail, lang),
 });
 
@@ -203,7 +215,10 @@ defineRoute({
 defineRoute({
   router: authRouter, method: 'post', path: '/me/email/confirm',
   summary: 'Confirm email change', tag: 'Auth', auth: 'user', limit: 'strict',
-  body: z.object({ newEmail: z.string().email(), code: z.string().length(6) }),
+  body: z.object({
+    newEmail: z.string().email().transform((v) => v.trim().toLowerCase()),
+    code: z.string().length(6),
+  }),
   handler: async ({ body, user, lang }) => {
     await svc.confirmEmailChange(user!.id, body.newEmail, body.code, lang);
     return { ok: true };

@@ -1,0 +1,2963 @@
+{
+  "info": {
+    "name": "MARBOU API - Slice 1",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "pm.request.headers.upsert({ key: \"X-Device-Id\", value: pm.environment.get(\"deviceId\") || \"11111111-1111-4111-8111-111111111111\" });",
+          "pm.request.headers.upsert({ key: \"Accept-Language\", value: \"en\" });",
+          "const isAdmin = pm.request.url.getPath().includes(\"/admin/\");",
+          "const t = pm.environment.get(isAdmin ? \"adminToken\" : \"accessToken\");",
+          "if (t && !pm.request.headers.has(\"Authorization\")) {",
+          "  pm.request.headers.add({ key: \"Authorization\", value: \"Bearer \" + t });",
+          "}"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "pm.test(\"no 5xx\", () => pm.expect(pm.response.code).to.be.below(500));",
+          "pm.test(\"response time < 2000ms\", () => pm.expect(pm.response.responseTime).to.be.below(2000));",
+          "if (pm.response.code >= 400) {",
+          "  pm.test(\"error envelope\", () => pm.expect(pm.response.json()).to.have.nested.property(\"error.code\"));",
+          "}"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:4000/api/v1"
+    },
+    {
+      "key": "devUrl",
+      "value": "http://localhost:4000/dev"
+    }
+  ],
+  "item": [
+    {
+      "name": "00 Pre-request and Config",
+      "item": [
+        {
+          "name": "GET /health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/health"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));",
+                  "pm.test(\"ok\", () => pm.expect(pm.response.json().status).to.equal(\"ok\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /config",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/config"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));",
+                  "pm.test(\"has flags\", () => pm.expect(pm.response.json()).to.have.property(\"flags\"));",
+                  "const etag = pm.response.headers.get(\"ETag\");",
+                  "if (etag) pm.environment.set(\"configEtag\", etag);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /config 304 [NEG]",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/config"
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.request.headers.upsert({ key: \"If-None-Match\", value: pm.environment.get(\"configEtag\") });"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"304\", () => pm.expect(pm.response.code).to.equal(304));"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.environment.set(\"runId\", Date.now().toString());",
+              "pm.environment.set(\"sellerEmail\", \"seller+\" + pm.environment.get(\"runId\") + \"@test.com\");",
+              "pm.environment.set(\"buyerEmail\", \"buyer+\" + pm.environment.get(\"runId\") + \"@test.com\");",
+              "pm.environment.set(\"lockEmail\", \"lock+\" + pm.environment.get(\"runId\") + \"@test.com\");"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "01 Auth",
+      "item": [
+        {
+          "name": "POST /auth/register (seller)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/auth/register",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{sellerEmail}}\",\n  \"password\": \"Password1!\",\n  \"fullName\": \"Seller User\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));",
+                  "pm.test(\"userId\", () => pm.expect(pm.response.json()).to.have.property(\"userId\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /auth/register (buyer)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/auth/register",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{buyerEmail}}\",\n  \"password\": \"Password1!\",\n  \"fullName\": \"Buyer User\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[OTP] fetch REGISTER for {{sellerEmail}}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{devUrl}}/last-otp?email={{sellerEmail}}&purpose=REGISTER"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));",
+                  "const _oc = pm.response.json().code;",
+                  "pm.test(\"got code\", () => pm.expect(_oc).to.match(/^\\d{6}$/));",
+                  "pm.environment.set(\"otp\", _oc);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /auth/otp/verify (seller)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/auth/otp/verify",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{sellerEmail}}\",\n  \"code\": \"{{otp}}\",\n  \"purpose\": \"REGISTER\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));",
+                  "pm.test(\"accessToken\", () => pm.expect(pm.response.json()).to.have.property(\"accessToken\"));",
+                  "const j = pm.response.json();",
+                  "if (j.accessToken) { pm.environment.set(\"accessToken\", j.accessToken); pm.environment.set(\"refreshToken\", j.refreshToken); }",
+                  "if (j.user && j.user.id) pm.environment.set(\"userId\", j.user.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[OTP] fetch REGISTER for {{buyerEmail}}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{devUrl}}/last-otp?email={{buyerEmail}}&purpose=REGISTER"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));",
+                  "const _oc = pm.response.json().code;",
+                  "pm.test(\"got code\", () => pm.expect(_oc).to.match(/^\\d{6}$/));",
+                  "pm.environment.set(\"otp\", _oc);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /auth/otp/verify (buyer)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/auth/otp/verify",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{buyerEmail}}\",\n  \"code\": \"{{otp}}\",\n  \"purpose\": \"REGISTER\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));",
+                  "const jb = pm.response.json();",
+                  "if (jb.accessToken) { pm.environment.set(\"buyerToken\", jb.accessToken); pm.environment.set(\"buyerRefresh\", jb.refreshToken); }",
+                  "if (jb.user && jb.user.id) pm.environment.set(\"buyerUserId\", jb.user.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /auth/login (seller)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{sellerEmail}}\",\n  \"password\": \"Password1!\",\n  \"device\": {\n    \"id\": \"{{deviceId}}\",\n    \"name\": \"Postman\",\n    \"os\": \"test\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));",
+                  "const j = pm.response.json();",
+                  "if (j.accessToken) { pm.environment.set(\"accessToken\", j.accessToken); pm.environment.set(\"refreshToken\", j.refreshToken); }",
+                  "if (j.user && j.user.id) pm.environment.set(\"userId\", j.user.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /auth/otp/channels",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/auth/otp/channels"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));",
+                  "pm.test(\"email field\", () => pm.expect(pm.response.json()).to.have.property(\"email\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /me/sessions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/me/sessions"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));",
+                  "pm.test(\"array\", () => pm.expect(pm.response.json()).to.be.an(\"array\"));",
+                  "const ss = pm.response.json(); if (ss.length > 0) pm.environment.set(\"sessionId\", ss[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /me/login-events",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/me/login-events"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /auth/refresh",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/auth/refresh",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));",
+                  "const jr = pm.response.json();",
+                  "if (jr.accessToken) { pm.environment.set(\"accessToken\", jr.accessToken); pm.environment.set(\"refreshToken\", jr.refreshToken); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /auth/password/forgot",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/auth/password/forgot",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{sellerEmail}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[OTP] fetch RESET for {{sellerEmail}}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{devUrl}}/last-otp?email={{sellerEmail}}&purpose=RESET"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));",
+                  "const _oc = pm.response.json().code;",
+                  "pm.test(\"got code\", () => pm.expect(_oc).to.match(/^\\d{6}$/));",
+                  "pm.environment.set(\"otp\", _oc);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /auth/password/reset (via OTP)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/auth/password/reset",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{sellerEmail}}\",\n  \"code\": \"{{otp}}\",\n  \"newPassword\": \"NewPassword1!\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /auth/login (new password)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{sellerEmail}}\",\n  \"password\": \"NewPassword1!\",\n  \"device\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));",
+                  "const j = pm.response.json();",
+                  "if (j.accessToken) { pm.environment.set(\"accessToken\", j.accessToken); pm.environment.set(\"refreshToken\", j.refreshToken); }",
+                  "if (j.user && j.user.id) pm.environment.set(\"userId\", j.user.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /auth/social/google (new user)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/auth/social/google",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"idToken\": \"mock:social+{{runId}}@test.com:Social User\",\n  \"device\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));",
+                  "pm.test(\"accessToken\", () => pm.expect(pm.response.json()).to.have.property(\"accessToken\"));",
+                  "const js = pm.response.json(); pm.environment.set(\"socialUserId\", js.user ? js.user.id : \"\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /auth/social/google (same user, no dup)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/auth/social/google",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"idToken\": \"mock:social+{{runId}}@test.com:Social User\",\n  \"device\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));",
+                  "pm.test(\"same userId\", () => pm.expect(pm.response.json().user ? pm.response.json().user.id : pm.environment.get(\"socialUserId\")).to.equal(pm.environment.get(\"socialUserId\")));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /auth/social/google (no-email)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/auth/social/google",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"idToken\": \"mock::NoEmail User\",\n  \"device\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));",
+                  "pm.test(\"no email on user\", () => pm.expect(pm.response.json().user ? pm.response.json().user.email : null).to.equal(null));",
+                  "const jne = pm.response.json(); if (jne.accessToken) pm.environment.set(\"noEmailToken\", jne.accessToken);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[NEG] register weak password",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/auth/register",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"neg+{{runId}}@test.com\",\n  \"password\": \"weak\",\n  \"fullName\": \"A\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"400\", () => pm.expect(pm.response.code).to.equal(400));",
+                  "pm.test(\"WEAK_PASSWORD\", () => pm.expect(pm.response.json().error.code).to.equal(\"WEAK_PASSWORD\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[NEG] otp/request no identifier -> 400",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/auth/otp/request",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"purpose\": \"REGISTER\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"400\", () => pm.expect(pm.response.code).to.equal(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[NEG] register after no-identifier (OTP still valid)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/auth/register",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"stillvalid+{{runId}}@test.com\",\n  \"password\": \"Password1!\",\n  \"fullName\": \"A\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[NEG] CHANGE_EMAIL on public otp/request -> 400",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/auth/otp/request",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{sellerEmail}}\",\n  \"purpose\": \"CHANGE_EMAIL\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"400\", () => pm.expect(pm.response.code).to.equal(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[NEG] unknown email otp/request -> 200 no OTP row",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/auth/otp/request",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"nobody+{{runId}}@test.com\",\n  \"purpose\": \"REGISTER\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));",
+                  "pm.test(\"otpSentTo present\", () => pm.expect(pm.response.json()).to.have.property(\"otpSentTo\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[NEG] mixed-case email verifies (re-register)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/auth/register",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"MixedCase+{{runId}}@Test.COM\",\n  \"password\": \"Password1!\",\n  \"fullName\": \"Mixed\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 or 409\", () => pm.expect([200,409]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[NEG] REFRESH REUSE - capture old refresh",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/auth/refresh",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.environment.set(\"oldRefresh\", pm.environment.get(\"refreshToken\"));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));",
+                  "const jrr = pm.response.json();",
+                  "if (jrr.refreshToken) { pm.environment.set(\"newRefresh\", jrr.refreshToken); pm.environment.set(\"accessToken\", jrr.accessToken); pm.environment.set(\"refreshToken\", jrr.refreshToken); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[NEG] REFRESH REUSE - old token -> 401 REFRESH_REUSED",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/auth/refresh",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{oldRefresh}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"401\", () => pm.expect(pm.response.code).to.equal(401));",
+                  "pm.test(\"REFRESH_REUSED\", () => pm.expect(pm.response.json().error.code).to.equal(\"REFRESH_REUSED\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[NEG] REFRESH REUSE - new token also revoked -> 401",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/auth/refresh",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{newRefresh}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"401\", () => pm.expect(pm.response.code).to.equal(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[NEG] REFRESH REUSE - re-login to restore session",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{sellerEmail}}\",\n  \"password\": \"NewPassword1!\",\n  \"device\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));",
+                  "const j = pm.response.json();",
+                  "if (j.accessToken) { pm.environment.set(\"accessToken\", j.accessToken); pm.environment.set(\"refreshToken\", j.refreshToken); }",
+                  "if (j.user && j.user.id) pm.environment.set(\"userId\", j.user.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[NEG] lockout - register lockEmail user",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/auth/register",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{lockEmail}}\",\n  \"password\": \"Password1!\",\n  \"fullName\": \"Lock User\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[OTP] fetch REGISTER for {{lockEmail}}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{devUrl}}/last-otp?email={{lockEmail}}&purpose=REGISTER"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));",
+                  "const _oc = pm.response.json().code;",
+                  "pm.test(\"got code\", () => pm.expect(_oc).to.match(/^\\d{6}$/));",
+                  "pm.environment.set(\"otp\", _oc);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[NEG] lockout - verify lockEmail OTP",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/auth/otp/verify",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{lockEmail}}\",\n  \"code\": \"{{otp}}\",\n  \"purpose\": \"REGISTER\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[NEG] lockout attempt 1/5",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{lockEmail}}\",\n  \"password\": \"WrongPass1\",\n  \"device\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"401\", () => pm.expect(pm.response.code).to.equal(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[NEG] lockout attempt 2/5",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{lockEmail}}\",\n  \"password\": \"WrongPass1\",\n  \"device\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"401\", () => pm.expect(pm.response.code).to.equal(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[NEG] lockout attempt 3/5",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{lockEmail}}\",\n  \"password\": \"WrongPass1\",\n  \"device\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"401\", () => pm.expect(pm.response.code).to.equal(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[NEG] lockout attempt 4/5",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{lockEmail}}\",\n  \"password\": \"WrongPass1\",\n  \"device\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"401\", () => pm.expect(pm.response.code).to.equal(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[NEG] lockout attempt 5/5",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{lockEmail}}\",\n  \"password\": \"WrongPass1\",\n  \"device\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"401\", () => pm.expect(pm.response.code).to.equal(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[NEG] lockout attempt 6 -> 429 ACCOUNT_LOCKED",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{lockEmail}}\",\n  \"password\": \"WrongPass1\",\n  \"device\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"429\", () => pm.expect(pm.response.code).to.equal(429));",
+                  "pm.test(\"ACCOUNT_LOCKED\", () => pm.expect(pm.response.json().error.code).to.equal(\"ACCOUNT_LOCKED\"));",
+                  "pm.test(\"retryAfterSec > 0\", () => pm.expect(pm.response.json().error.details.retryAfterSec).to.be.above(0));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[NEG] tampered bearer -> 401",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/me"
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.request.headers.upsert({ key: \"Authorization\", value: \"Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4IiwiZXhwIjoxfQ.bad\" });"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"401\", () => pm.expect(pm.response.code).to.equal(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[NEG] no token /me -> 401",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/me"
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.request.headers.remove(\"Authorization\");"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"401\", () => pm.expect(pm.response.code).to.equal(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /auth/login (restore for profile folder)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{sellerEmail}}\",\n  \"password\": \"NewPassword1!\",\n  \"device\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));",
+                  "const j = pm.response.json();",
+                  "if (j.accessToken) { pm.environment.set(\"accessToken\", j.accessToken); pm.environment.set(\"refreshToken\", j.refreshToken); }",
+                  "if (j.user && j.user.id) pm.environment.set(\"userId\", j.user.id);"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "event": []
+    },
+    {
+      "name": "02 Profile",
+      "item": [
+        {
+          "name": "GET /me",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/me"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));",
+                  "pm.test(\"has email\", () => pm.expect(pm.response.json()).to.have.property(\"email\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "PATCH /me",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": "{{baseUrl}}/me",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fullName\": \"Updated Seller\",\n  \"bio\": \"Test bio\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));",
+                  "pm.test(\"name updated\", () => pm.expect(pm.response.json().fullName).to.equal(\"Updated Seller\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /me/capabilities",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/me/capabilities"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /me/capabilities SELLER -> 200",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/me/capabilities",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"capability\": \"SELLER\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 or 409\", () => pm.expect([200,409]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /me/capabilities SELLER again -> 409",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/me/capabilities",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"capability\": \"SELLER\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"409\", () => pm.expect(pm.response.code).to.equal(409));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /me/capabilities DEALER -> 422 BUSINESS_SETUP_REQUIRED",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/me/capabilities",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"capability\": \"DEALER\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"422\", () => pm.expect(pm.response.code).to.equal(422));",
+                  "pm.test(\"BUSINESS_SETUP_REQUIRED\", () => pm.expect(pm.response.json().error.code).to.equal(\"BUSINESS_SETUP_REQUIRED\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /me/capabilities EMPLOYER with setup -> 200",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/me/capabilities",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"capability\": \"EMPLOYER\",\n  \"setup\": {\n    \"companyName\": \"Test Co\",\n    \"industry\": \"tech\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 or 409\", () => pm.expect([200,409]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /users/{{buyerUserId}} public",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/users/{{buyerUserId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 or 404\", () => pm.expect([200,404]).to.include(pm.response.code));",
+                  "if (pm.response.code === 200) {",
+                  "  pm.test(\"no email\", () => pm.expect(pm.response.json()).to.not.have.property(\"email\"));",
+                  "  pm.test(\"no phone\", () => pm.expect(pm.response.json()).to.not.have.property(\"phone\"));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /users/{{buyerUserId}}/block (block buyer)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/users/{{buyerUserId}}/block"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 or 409\", () => pm.expect([200,409]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /me/blocks",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/me/blocks"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));",
+                  "pm.test(\"array\", () => pm.expect(pm.response.json()).to.be.an(\"array\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "DELETE /users/{{buyerUserId}}/block (unblock)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{baseUrl}}/users/{{buyerUserId}}/block"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 or 404\", () => pm.expect([200,404]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /me/notification-preferences",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/me/notification-preferences"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "PATCH /me/notification-preferences",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": "{{baseUrl}}/me/notification-preferences",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"push\": true,\n  \"email\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /me/device-tokens",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/me/device-tokens",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"test-device-token-123\",\n  \"platform\": \"android\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 or 422\", () => pm.expect([200,422]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "DELETE /me/device-tokens/test-device-token-123",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{baseUrl}}/me/device-tokens/test-device-token-123"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 or 404\", () => pm.expect([200,404]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "PATCH /me/phone valid (+249...)",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": "{{baseUrl}}/me/phone",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"+249912345678\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "PATCH /me/phone invalid -> 400",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": "{{baseUrl}}/me/phone",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"notaphone\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"400\", () => pm.expect(pm.response.code).to.equal(400));",
+                  "pm.test(\"INVALID_PHONE\", () => pm.expect(pm.response.json().error.code).to.equal(\"INVALID_PHONE\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /me/password/change",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/me/password/change",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"currentPassword\": \"NewPassword1!\",\n  \"newPassword\": \"ChangedPass1!\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /auth/login (changed password)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{sellerEmail}}\",\n  \"password\": \"ChangedPass1!\",\n  \"device\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));",
+                  "const j = pm.response.json();",
+                  "if (j.accessToken) { pm.environment.set(\"accessToken\", j.accessToken); pm.environment.set(\"refreshToken\", j.refreshToken); }",
+                  "if (j.user && j.user.id) pm.environment.set(\"userId\", j.user.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /me/email/change",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/me/email/change",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"newEmail\": \"changed+{{runId}}@test.com\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[OTP] fetch CHANGE_EMAIL for changed+{{runId}}@test.com",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{devUrl}}/last-otp?email=changed+{{runId}}@test.com&purpose=CHANGE_EMAIL"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));",
+                  "const _oce = pm.response.json().code;",
+                  "pm.test(\"got code\", () => pm.expect(_oce).to.match(/^\\d{6}$/));",
+                  "pm.environment.set(\"otp\", _oce);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /me/email/confirm",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/me/email/confirm",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"newEmail\": \"changed+{{runId}}@test.com\",\n  \"code\": \"{{otp}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));",
+                  "// Store changed email so post-logout logins use the right address",
+                  "pm.environment.set(\"changedEmail\", \"changed+\" + pm.environment.get(\"runId\") + \"@test.com\");"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /auth/logout",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/auth/logout"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /auth/login (after logout)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{changedEmail}}\",\n  \"password\": \"ChangedPass1!\",\n  \"device\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));",
+                  "const j = pm.response.json();",
+                  "if (j.accessToken) { pm.environment.set(\"accessToken\", j.accessToken); pm.environment.set(\"refreshToken\", j.refreshToken); }",
+                  "if (j.user && j.user.id) pm.environment.set(\"userId\", j.user.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "DELETE /me/sessions (revoke others)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{baseUrl}}/me/sessions"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /me/verification -> 404 MEDIA_NOT_FOUND",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/me/verification",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"kind\": \"USER\",\n  \"documentMediaIds\": [\n    \"00000000-0000-0000-0000-000000000000\"\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"404\", () => pm.expect(pm.response.code).to.equal(404));",
+                  "pm.test(\"MEDIA_NOT_FOUND\", () => pm.expect(pm.response.json().error.code).to.equal(\"MEDIA_NOT_FOUND\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[NEG] social no-email token on POST /me/verification -> 403 EMAIL_NOT_VERIFIED",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{noEmailToken}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/me/verification",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"kind\": \"USER\",\n  \"documentMediaIds\": [\n    \"00000000-0000-0000-0000-000000000000\"\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"403\", () => pm.expect(pm.response.code).to.equal(403));",
+                  "pm.test(\"EMAIL_NOT_VERIFIED\", () => pm.expect(pm.response.json().error.code).to.equal(\"EMAIL_NOT_VERIFIED\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[NEG] customer token on GET /admin/me -> 401",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/admin/me"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"401\", () => pm.expect(pm.response.code).to.equal(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /auth/login (restore after session revoke)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{changedEmail}}\",\n  \"password\": \"ChangedPass1!\",\n  \"device\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));",
+                  "const j = pm.response.json();",
+                  "if (j.accessToken) { pm.environment.set(\"accessToken\", j.accessToken); pm.environment.set(\"refreshToken\", j.refreshToken); }",
+                  "if (j.user && j.user.id) pm.environment.set(\"userId\", j.user.id);"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "event": []
+    },
+    {
+      "name": "03 Admin",
+      "item": [
+        {
+          "name": "POST /admin/auth/login",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/admin/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));",
+                  "pm.test(\"mfaToken\", () => pm.expect(pm.response.json()).to.have.property(\"mfaToken\"));",
+                  "const jm = pm.response.json(); if (jm.mfaToken) pm.environment.set(\"mfaToken\", jm.mfaToken);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /admin/auth/verify-2fa",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/admin/auth/verify-2fa",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mfaToken\": \"{{mfaToken}}\",\n  \"code\": \"000000\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));",
+                  "pm.test(\"accessToken\", () => pm.expect(pm.response.json()).to.have.property(\"accessToken\"));",
+                  "const ja = pm.response.json();",
+                  "if (ja.accessToken) { pm.environment.set(\"adminToken\", ja.accessToken); pm.environment.set(\"adminRefresh\", ja.refreshToken); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[NEG] reuse consumed mfaToken -> 400 MFA_TOKEN_INVALID",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/admin/auth/verify-2fa",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mfaToken\": \"{{mfaToken}}\",\n  \"code\": \"000000\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"400\", () => pm.expect(pm.response.code).to.equal(400));",
+                  "pm.test(\"MFA_TOKEN_INVALID\", () => pm.expect(pm.response.json().error.code).to.equal(\"MFA_TOKEN_INVALID\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /admin/auth/refresh",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/admin/auth/refresh",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{adminRefresh}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));",
+                  "const jar = pm.response.json(); if (jar.accessToken) { pm.environment.set(\"adminToken\", jar.accessToken); pm.environment.set(\"adminRefresh\", jar.refreshToken); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[NEG] refresh token as Bearer on /admin/me -> 401",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminRefresh}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/admin/me"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"401\", () => pm.expect(pm.response.code).to.equal(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /admin/me",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/admin/me"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));",
+                  "pm.test(\"role\", () => pm.expect(pm.response.json()).to.have.property(\"role\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /admin/settings",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/admin/settings"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));",
+                  "pm.test(\"has flags.otp.email\", () => pm.expect(pm.response.json()).to.have.property(\"flags.otp.email\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "PATCH /admin/flags/flags.video.enabled false",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": "{{baseUrl}}/admin/flags/flags.video.enabled",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"value\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /config (video disabled)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/config"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));",
+                  "pm.test(\"video disabled\", () => pm.expect(pm.response.json().flags[\"flags.video.enabled\"]).to.equal(false));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "PATCH /admin/flags/flags.video.enabled restore true",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": "{{baseUrl}}/admin/flags/flags.video.enabled",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"value\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[NEG] PATCH flags.otp.email false -> 422 LAST_OTP_CHANNEL",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": "{{baseUrl}}/admin/flags/flags.otp.email",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"value\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"422\", () => pm.expect(pm.response.code).to.equal(422));",
+                  "pm.test(\"LAST_OTP_CHANNEL\", () => pm.expect(pm.response.json().error.code).to.equal(\"LAST_OTP_CHANNEL\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[NEG] unknown setting key -> 404",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": "{{baseUrl}}/admin/settings/nonexistent.key",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"value\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"404\", () => pm.expect(pm.response.code).to.equal(404));",
+                  "pm.test(\"SETTING_NOT_FOUND\", () => pm.expect(pm.response.json().error.code).to.equal(\"SETTING_NOT_FOUND\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[NEG] wrong type -> 422",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": "{{baseUrl}}/admin/settings/flags.otp.email",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"value\": \"yes\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"422\", () => pm.expect(pm.response.code).to.equal(422));",
+                  "pm.test(\"SETTING_INVALID_VALUE\", () => pm.expect(pm.response.json().error.code).to.equal(\"SETTING_INVALID_VALUE\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[NEG] null value -> 422",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": "{{baseUrl}}/admin/settings/flags.otp.email",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"value\": null\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"422\", () => pm.expect(pm.response.code).to.equal(422));",
+                  "pm.test(\"SETTING_INVALID_VALUE\", () => pm.expect(pm.response.json().error.code).to.equal(\"SETTING_INVALID_VALUE\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /admin/audit-logs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/admin/audit-logs"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));",
+                  "pm.test(\"data array\", () => pm.expect(pm.response.json()).to.have.property(\"data\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /admin/audit-logs/verify ok:true",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/admin/audit-logs/verify"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));",
+                  "pm.test(\"ok true\", () => pm.expect(pm.response.json().ok).to.equal(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /admin/admins (create moderator)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/admin/admins",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"mod+{{runId}}@marbou.test\",\n  \"fullName\": \"Test Mod\",\n  \"role\": \"CONTENT_MODERATOR\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));",
+                  "pm.test(\"tempPassword\", () => pm.expect(pm.response.json()).to.have.property(\"tempPassword\"));",
+                  "const jmod = pm.response.json();",
+                  "pm.environment.set(\"modEmail\", \"mod+\" + pm.environment.get(\"runId\") + \"@marbou.test\");",
+                  "pm.environment.set(\"modTempPassword\", jmod.tempPassword);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /admin/auth/login (moderator)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/admin/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{modEmail}}\",\n  \"password\": \"{{modTempPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));",
+                  "const jml = pm.response.json(); if (jml.mfaToken) pm.environment.set(\"modMfaToken\", jml.mfaToken);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /admin/auth/verify-2fa (moderator)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/admin/auth/verify-2fa",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mfaToken\": \"{{modMfaToken}}\",\n  \"code\": \"000000\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));",
+                  "const jmv = pm.response.json(); if (jmv.accessToken) pm.environment.set(\"modToken\", jmv.accessToken);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /admin/settings (mod) -> 403 PASSWORD_CHANGE_REQUIRED",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{modToken}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/admin/settings"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"403\", () => pm.expect(pm.response.code).to.equal(403));",
+                  "pm.test(\"PASSWORD_CHANGE_REQUIRED\", () => pm.expect(pm.response.json().error.code).to.equal(\"PASSWORD_CHANGE_REQUIRED\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /admin/auth/change-password (moderator)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{modToken}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/admin/auth/change-password",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"currentPassword\": \"{{modTempPassword}}\",\n  \"newPassword\": \"ModNewPass#123\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));",
+                  "const jcp = pm.response.json(); if (jcp.accessToken) pm.environment.set(\"modToken\", jcp.accessToken);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /admin/settings (mod after pw change) -> 403 (no perm)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{modToken}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/admin/settings"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"403\", () => pm.expect(pm.response.code).to.equal(403));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[NEG] second login + wrong code -> 400 TOTP_INVALID",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/admin/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));",
+                  "const jl2 = pm.response.json(); if (jl2.mfaToken) pm.environment.set(\"mfaToken2\", jl2.mfaToken);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[NEG] wrong TOTP code -> 400 TOTP_INVALID",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/admin/auth/verify-2fa",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mfaToken\": \"{{mfaToken2}}\",\n  \"code\": \"999999\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"400\", () => pm.expect(pm.response.code).to.equal(400));",
+                  "pm.test(\"TOTP_INVALID\", () => pm.expect(pm.response.json().error.code).to.equal(\"TOTP_INVALID\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[NEG] moderator GET /admin/settings -> 403",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{modToken}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/admin/settings"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"403\", () => pm.expect(pm.response.code).to.equal(403));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[NEG] moderator PATCH /admin/settings -> 403",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{modToken}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/admin/settings/flags.otp.email",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"value\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"403\", () => pm.expect(pm.response.code).to.equal(403));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[NEG] moderator GET /admin/audit-logs -> 403",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{modToken}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/admin/audit-logs"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"403\", () => pm.expect(pm.response.code).to.equal(403));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[NEG] wrong admin password -> 401",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/admin/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"WrongAdminPass1\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"401\", () => pm.expect(pm.response.code).to.equal(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /admin/admins (create finance auditor)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/admin/admins",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"finance+{{runId}}@marbou.test\",\n  \"fullName\": \"Finance Auditor\",\n  \"role\": \"FINANCIAL_AUDITOR\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));",
+                  "const jfin = pm.response.json();",
+                  "pm.environment.set(\"finEmail\", \"finance+\" + pm.environment.get(\"runId\") + \"@marbou.test\");",
+                  "pm.environment.set(\"finTempPassword\", jfin.tempPassword);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /admin/auth/login (finance)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/admin/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{finEmail}}\",\n  \"password\": \"{{finTempPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));",
+                  "const jfl = pm.response.json(); if (jfl.mfaToken) pm.environment.set(\"finMfaToken\", jfl.mfaToken);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /admin/auth/verify-2fa (finance)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/admin/auth/verify-2fa",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mfaToken\": \"{{finMfaToken}}\",\n  \"code\": \"000000\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));",
+                  "const jfv = pm.response.json();",
+                  "if (jfv.accessToken) pm.environment.set(\"finToken\", jfv.accessToken);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /admin/auth/change-password (finance)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{finToken}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/admin/auth/change-password",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"currentPassword\": \"{{finTempPassword}}\",\n  \"newPassword\": \"FinancePass#123\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));",
+                  "const jfcp = pm.response.json(); if (jfcp.accessToken) pm.environment.set(\"finToken\", jfcp.accessToken);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /admin/audit-logs (finance) -> 200",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{finToken}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/admin/audit-logs"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200\", () => pm.expect(pm.response.code).to.equal(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[NEG] finance POST /admin/admins -> 403",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{finToken}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/admin/admins",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"x@x.com\",\n  \"fullName\": \"X\",\n  \"role\": \"SUPPORT_AGENT\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"403\", () => pm.expect(pm.response.code).to.equal(403));"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "event": []
+    }
+  ]
+}

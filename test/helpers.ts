@@ -10,6 +10,12 @@ export const app = createApp();
 export const db = new PrismaClient();
 
 export async function clearTables() {
+  // Safety: only allow clearing tables in a test database
+  const dbUrl = process.env.DATABASE_URL ?? '';
+  const dbName = dbUrl.split('/').pop()?.split('?')[0] ?? '';
+  if (!dbName.endsWith('_test')) {
+    throw new Error(`clearTables() refused: database "${dbName}" does not end with _test`);
+  }
   await db.$executeRawUnsafe(`
     TRUNCATE "AnalyticsEvent","AuditLog","BlockedUser","LoginEvent","MediaAsset",
     "OtpCode","Session","SocialIdentity","VerificationRequest","User",

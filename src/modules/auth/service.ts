@@ -115,6 +115,46 @@ export async function getOtpChannels() {
   return { email, sms, whatsapp };
 }
 
+// ─── Request OTP (public) ────────────────────────────────────────────────────
+// Public route: REGISTER and RESET only. Returns 200 silently when no eligible user exists.
+export async function requestOtpPublic(input: {
+  email?: string;
+  phone?: string;
+  purpose: 'REGISTER' | 'RESET';
+  channel?: OtpChannel;
+  lang: 'ar' | 'en';
+}) {
+  const email = input.email;
+
+  if (input.purpose === 'REGISTER') {
+    // Only send if an unverified user exists with this email
+    if (email) {
+      const user = await db.user.findUnique({ where: { email } });
+      if (!user || user.emailVerifiedAt) {
+        // No eligible user — return same shape without creating OTP row
+        return { otpSentTo: email, resendAfterSec: 60 };
+      }
+      return requestOtp({ ...input, userId: user.id });
+    }
+    // phone-based REGISTER: just proceed
+    return requestOtp(input);
+  }
+
+  if (input.purpose === 'RESET') {
+    // Only send if any user exists
+    if (email) {
+      const user = await db.user.findUnique({ where: { email } });
+      if (!user) {
+        return { otpSentTo: email, resendAfterSec: 60 };
+      }
+      return requestOtp({ ...input, userId: user.id });
+    }
+    return requestOtp(input);
+  }
+
+  return requestOtp(input);
+}
+
 // ─── Request OTP ──────────────────────────────────────────────────────────────
 
 export async function requestOtp(input: {

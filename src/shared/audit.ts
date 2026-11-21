@@ -13,12 +13,15 @@ interface AuditEntry {
 /** B02: canonical JSON — recursively sort object keys so JSONB round-trips don't break the hash */
 function canonicalJson(value: unknown): string {
   if (value === null || value === undefined) return 'null';
-  if (typeof value !== 'object' || Array.isArray(value)) return JSON.stringify(value);
-  const obj = value as Record<string, unknown>;
-  const sorted: Record<string, unknown> = {};
-  for (const k of Object.keys(obj).sort()) sorted[k] = obj[k];
-  // recurse into values
-  return '{' + Object.keys(sorted).map((k) => JSON.stringify(k) + ':' + canonicalJson(sorted[k])).join(',') + '}';
+  if (Array.isArray(value)) {
+    return '[' + value.map(canonicalJson).join(',') + ']';
+  }
+  if (typeof value === 'object') {
+    const obj = value as Record<string, unknown>;
+    const keys = Object.keys(obj).sort();
+    return '{' + keys.map((k) => JSON.stringify(k) + ':' + canonicalJson(obj[k])).join(',') + '}';
+  }
+  return JSON.stringify(value);
 }
 
 function buildPayload(e: AuditEntry, createdAt: Date): string {

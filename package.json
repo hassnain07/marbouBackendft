@@ -16,7 +16,7 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:generate": "prisma generate",
     "openapi": "tsx scripts/export-openapi.ts",
-    "postman": "npm run openapi && tsx scripts/build-postman.ts",
+    "postman": "tsx scripts/build-postman.ts",
     "lint": "eslint src test"
   },
   "dependencies": {

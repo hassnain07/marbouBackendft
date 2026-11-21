@@ -11,6 +11,7 @@ import {
 } from './helpers';
 import { validatePhone } from '../src/shared/crypto';
 import { audit } from '../src/shared/audit';
+import { getLastOtp } from '../src/shared/email';
 
 const BASE = '/api/v1';
 
@@ -341,5 +342,66 @@ describe('Admin password change (B07)', () => {
       .send({ value: 'yes' });
     expect(res.status).toBe(422);
     expect(res.body.error.code).toBe('SETTING_INVALID_VALUE');
+  });
+});
+
+// ─── B3: OTP public route restrictions ───────────────────────────────────────
+
+describe('OTP public route restrictions (B3)', () => {
+  it('otp/request without email or phone returns 400', async () => {
+    const res = await request(app).post(`${BASE}/auth/otp/request`)
+      .send({ purpose: 'REGISTER' });
+    expect(res.status).toBe(400);
+  });
+
+  it('otp/request with CHANGE_EMAIL purpose returns 400 (Zod rejects it)', async () => {
+    const res = await request(app).post(`${BASE}/auth/otp/request`)
+      .send({ email: 'test@test.com', purpose: 'CHANGE_EMAIL' });
+    expect(res.status).toBe(400);
+  });
+
+  it('otp/verify with CHANGE_EMAIL purpose returns 400 (Zod rejects it)', async () => {
+    const res = await request(app).post(`${BASE}/auth/otp/verify`)
+      .send({ email: 'test@test.com', code: '123456', purpose: 'CHANGE_EMAIL' });
+    expect(res.status).toBe(400);
+  });
+
+  it('unknown email on otp/request returns 200 with no OTP row created', async () => {
+    const email = `unknown_${Date.now()}@test.com`;
+    const before = await db.otpCode.count({ where: { email } });
+    const res = await request(app).post(`${BASE}/auth/otp/request`)
+      .send({ email, purpose: 'RESET' });
+    expect(res.status).toBe(200);
+    const after = await db.otpCode.count({ where: { email } });
+    expect(after).toBe(before); // no new OTP row
+  });
+
+  it('mixed-case email on otp/verify works (normalised to lowercase)', async () => {
+    const email = `mixedcase_${Date.now()}@test.com`;
+    // Register with lowercase
+    await request(app).post(`${BASE}/auth/register`)
+      .send({ email, password: 'Password1', fullName: 'A' });
+    const code = getLastOtp(email, 'REGISTER');
+    // Verify with mixed-case email
+    const res = await request(app).post(`${BASE}/auth/otp/verify`)
+      .send({ email: email.toUpperCase(), code, purpose: 'REGISTER' });
+    expect(res.status).toBe(200);
+    expect(res.body.accessToken).toBeDefined();
+  });
+
+  it('other users pending OTP codes remain valid after a no-identifier request', async () => {
+    const email = `other_${Date.now()}@test.com`;
+    await request(app).post(`${BASE}/auth/register`)
+      .send({ email, password: 'Password1', fullName: 'A' });
+    const code = getLastOtp(email, 'REGISTER');
+
+    // Bad request (no identifier) — should not affect other OTPs
+    await request(app).post(`${BASE}/auth/otp/request`)
+      .send({ purpose: 'REGISTER' }); // 400
+
+    // Original OTP still works
+    const verify = await request(app).post(`${BASE}/auth/otp/verify`)
+      .send({ email, code, purpose: 'REGISTER' });
+    expect(verify.status).toBe(200);
   });
 });

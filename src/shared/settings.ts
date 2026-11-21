@@ -92,12 +92,14 @@ async function load(force = false): Promise<void> {
 
 function validateSetting(key: string, value: unknown): void {
   // AUTH-15: refuse disabling the last OTP channel
-  if (key.startsWith('flags.otp.') && value === false) {
+  // Treat anything other than exactly `true` as disabled
+  if (key.startsWith('flags.otp.') && value !== true) {
     const channels = ['flags.otp.email', 'flags.otp.sms', 'flags.otp.whatsapp'];
     const others = channels.filter((k) => k !== key);
     const anyEnabled = others.some((k) => {
       const v = cache.get(k);
-      return v !== undefined ? v : DEFAULTS[k];
+      const effective = v !== undefined ? v : DEFAULTS[k];
+      return effective === true;
     });
     if (!anyEnabled) throw E.rule('LAST_OTP_CHANNEL');
   }

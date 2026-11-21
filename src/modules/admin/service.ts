@@ -1,5 +1,6 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import { randomUUID } from 'crypto';
 import { authenticator } from 'otplib';
 import { db } from '../../shared/db';
 import { E } from '../../shared/errors';
@@ -12,6 +13,17 @@ import type { AdminRole } from '@prisma/client';
 
 const BCRYPT_ROUNDS = 12;
 const ACCESS_TTL = '30m';
+
+// ─── MFA token single-use (in-memory, single-instance) ────────────────────────
+// Maps jti -> expiry timestamp. Cleaned up lazily.
+const usedMfaJtis = new Map<string, number>();
+
+function purgeMfaJtis(): void {
+  const now = Date.now();
+  for (const [jti, exp] of usedMfaJtis) {
+    if (now > exp) usedMfaJtis.delete(jti);
+  }
+}
 
 // ─── Token helpers ────────────────────────────────────────────────────────────
 
@@ -32,42 +44,106 @@ function signAdminRefresh(admin: { id: string; role: AdminRole; tokenVersion: nu
 }
 
 function signMfaToken(adminId: string): string {
-  return jwt.sign({ sub: adminId, purpose: 'mfa' }, env.JWT_ADMIN_SECRET, { expiresIn: '5m' });
+  const jti = randomUUID();
+  return jwt.sign({ sub: adminId, purpose: 'mfa', jti }, env.JWT_ADMIN_SECRET, { expiresIn: '5m' });
 }
 
 function verifyMfaToken(token: string): string {
+  purgeMfaJtis();
+  let p: { sub: string; purpose: string; jti?: string; exp?: number };
   try {
-    const p = jwt.verify(token, env.JWT_ADMIN_SECRET) as { sub: string; purpose: string };
+    p = jwt.verify(token, env.JWT_ADMIN_SECRET) as typeof p;
     if (p.purpose !== 'mfa') throw new Error();
-    return p.sub;
   } catch {
     throw E.badRequest('MFA_TOKEN_INVALID');
   }
+  const jti = p.jti ?? '';
+  if (usedMfaJtis.has(jti)) throw E.badRequest('MFA_TOKEN_INVALID');
+  // Mark as used (store until expiry)
+  usedMfaJtis.set(jti, (p.exp ?? 0) * 1000);
+  return p.sub;
+}
+
+// ─── Admin brute-force lockout ────────────────────────────────────────────────
+
+async function checkAdminLockout(email: string): Promise<void> {
+  const lockoutCfg = await settings.get<{ maxFails: number; delaysMin: number[] }>('auth.lockout', {
+    maxFails: 5,
+    delaysMin: [1, 5, 15, 60],
+  });
+  const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const lastSuccess = await db.auditLog.findFirst({
+    where: { actorId: email, action: 'ADMIN_LOGIN' },
+    orderBy: { id: 'desc' },
+  });
+  const failsSince = lastSuccess ? lastSuccess.createdAt : since24h;
+  const fails = await db.auditLog.count({
+    where: {
+      actorId: email,
+      action: { in: ['ADMIN_BAD_PASSWORD', 'ADMIN_BAD_TOTP'] },
+      createdAt: { gt: failsSince },
+    },
+  });
+  if (fails >= lockoutCfg.maxFails) {
+    const lastFail = await db.auditLog.findFirst({
+      where: { actorId: email, action: { in: ['ADMIN_BAD_PASSWORD', 'ADMIN_BAD_TOTP'] } },
+      orderBy: { id: 'desc' },
+    });
+    if (lastFail) {
+      const extra = fails - lockoutCfg.maxFails;
+      const delayMin = lockoutCfg.delaysMin[Math.min(extra, lockoutCfg.delaysMin.length - 1)];
+      const unlockAt = lastFail.createdAt.getTime() + delayMin * 60 * 1000;
+      if (Date.now() < unlockAt) {
+        const retryAfterSec = Math.ceil((unlockAt - Date.now()) / 1000);
+        throw E.tooMany('ACCOUNT_LOCKED', { retryAfterSec });
+      }
+    }
+  }
+}
+
+async function recordAdminFail(email: string, action: 'ADMIN_BAD_PASSWORD' | 'ADMIN_BAD_TOTP'): Promise<void> {
+  await audit.log({
+    actor: { type: 'ADMIN', id: email },
+    action,
+    entity: 'AdminUser',
+    entityId: email,
+  }).catch(() => {});
 }
 
 // ─── Login step 1 ─────────────────────────────────────────────────────────────
 
 export async function adminLogin(input: { email: string; password: string; ip: string }) {
-  const admin = await db.adminUser.findUnique({ where: { email: input.email.toLowerCase() } });
-  if (!admin) throw E.unauthorized('INVALID_CREDENTIALS');
-  if (!admin.isActive) throw E.forbidden('ADMIN_INACTIVE');
+  const email = input.email.toLowerCase();
 
-  // IP allow-list
+  // Check lockout BEFORE revealing anything
+  await checkAdminLockout(email);
+
+  const admin = await db.adminUser.findUnique({ where: { email } });
+
+  // Count bad password BEFORE checking existence/active/IP
+  if (!admin) {
+    await recordAdminFail(email, 'ADMIN_BAD_PASSWORD');
+    throw E.unauthorized('INVALID_CREDENTIALS');
+  }
+
+  const valid = await bcrypt.compare(input.password, admin.passwordHash);
+  if (!valid) {
+    await recordAdminFail(email, 'ADMIN_BAD_PASSWORD');
+    throw E.unauthorized('INVALID_CREDENTIALS');
+  }
+
+  // Only check isActive and IP AFTER password is verified
+  if (!admin.isActive) throw E.forbidden('ADMIN_INACTIVE');
   if (admin.ipAllowlist.length > 0 && !admin.ipAllowlist.includes(input.ip)) {
     throw E.forbidden('ADMIN_IP_BLOCKED');
   }
 
-  const valid = await bcrypt.compare(input.password, admin.passwordHash);
-  if (!valid) throw E.unauthorized('INVALID_CREDENTIALS');
-
   const mfaToken = signMfaToken(admin.id);
 
   if (!admin.totpEnrolledAt) {
-    // First login: generate TOTP secret
     const secret = authenticator.generateSecret();
     const secretEnc = aesEncrypt(secret, env.ADMIN_TOTP_ENC_KEY);
     await db.adminUser.update({ where: { id: admin.id }, data: { totpSecretEnc: secretEnc } });
-
     const otpauthUrl = authenticator.keyuri(admin.email, 'MARBOU Admin', secret);
     return { needsEnrollment: true, mfaToken, otpauthUrl, secret };
   }
@@ -85,9 +161,9 @@ export async function adminVerify2fa(input: { mfaToken: string; code: string; ip
 
   const secret = aesDecrypt(admin.totpSecretEnc, env.ADMIN_TOTP_ENC_KEY);
 
-  // Accept fixed code in non-production
   const isFixedCode = !isProd && env.DEV_TOTP_FIXED_CODE && input.code === env.DEV_TOTP_FIXED_CODE;
   if (!isFixedCode && !authenticator.check(input.code, secret)) {
+    await recordAdminFail(admin.email, 'ADMIN_BAD_TOTP');
     throw E.badRequest('TOTP_INVALID');
   }
 
@@ -270,17 +346,27 @@ export async function updateSetting(actorId: string, key: string, value: unknown
   const allSettings = await settings.getAll();
   if (!allSettings.has(key)) throw E.notFound('SETTING_NOT_FOUND');
 
-  // B07: value type must match the default's type
+  // B07: reject null
+  if (value === null || value === undefined) throw E.rule('SETTING_INVALID_VALUE');
+
+  // B07: value type must match the default's type (with null/array checks)
   const defaultVal = allSettings.get(key);
-  if (defaultVal !== undefined && value !== null) {
-    const expectedType = typeof defaultVal;
-    const actualType = typeof value;
-    if (expectedType !== actualType) throw E.rule('SETTING_INVALID_VALUE');
+  if (defaultVal !== undefined) {
+    const expectedIsArray = Array.isArray(defaultVal);
+    const actualIsArray = Array.isArray(value);
+    if (expectedIsArray !== actualIsArray) throw E.rule('SETTING_INVALID_VALUE');
+    if (!expectedIsArray) {
+      const expectedType = typeof defaultVal;
+      const actualType = typeof value;
+      if (expectedType !== actualType) throw E.rule('SETTING_INVALID_VALUE');
+    }
   }
+
+  // flags.* must be boolean
+  if (key.startsWith('flags.') && typeof value !== 'boolean') throw E.rule('SETTING_INVALID_VALUE');
 
   const before = await settings.get(key);
   await settings.set(key, value, { type: 'ADMIN', id: actorId });
-  // B07: exactly one audit entry per change (audit is inside settings.set already, but we do it here only)
   await audit.log({
     actor: { type: 'ADMIN', id: actorId },
     action: 'SETTING_CHANGE',

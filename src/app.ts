@@ -165,7 +165,7 @@ export function createApp() {
     const devRouter = express.Router();
     devRouter.get('/last-otp', (req: Request, res: Response) => {
       const { getLastOtp } = require('./shared/email') as typeof import('./shared/email');
-      const email = (req.query.email as string ?? '').toLowerCase();
+      const email = ((req.query.email as string) ?? '').trim().toLowerCase();
       const purpose = (req.query.purpose as string) ?? 'REGISTER';
       const code = getLastOtp(email, purpose);
       if (!code) return res.status(404).json({ error: 'No OTP found' });

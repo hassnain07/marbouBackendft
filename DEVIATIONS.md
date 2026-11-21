@@ -15,22 +15,23 @@ File 03 (Fast-Track Simplification) overrides 01 and 02 where they conflict.
 | Prisma 5.22 (not latest) | Pinned for stability; upgrade path documented |
 | `zod` 3.x (not 4.x) | Pinned for `@asteasolutions/zod-to-openapi` compatibility |
 
-## Data Model
+## Data Model (Slice 1 — tables in schema.prisma)
 
 | Deviation | Reason |
 |---|---|
-| ~38 tables instead of 75+ | File 03 §2 merge rules applied |
+| ~15 tables in Slice 1 instead of 75+ (full PRD) | Slices 2–5 add remaining tables |
 | No `Country` table — `User.countryCode String @default("SD")` | Simplified; country list is static for Sudan launch |
 | `AdminUser.tokenVersion Int` instead of `AdminSession` table | File 03 §2: stateless admin token revocation |
 | `User` has merged columns: `capabilities[]`, `badges[]`, `notifPrefs Json`, `deviceTokens Json`, `employerProfile Json?`, `serviceProfile Json?` | File 03 §2 merge rules |
-| `Booking` table merges RentalRequest + ServiceAppointment + AccommodationInquiry | File 03 §2 |
-| `Place` table merges State + City + Neighborhood | File 03 §2 |
-| `ContentBlock` merges Banner + HelpArticle + StaticPage | File 03 §2 |
-| `ChatMessage.meta Json` replaces `Offer` table | File 03 §2 |
-| `ModerationAction` has appeal columns instead of separate `Appeal` table | File 03 §2 |
-| `Payment.invoiceNo` instead of separate `Invoice` table | File 03 §2 |
-| `Listing.scan Json` instead of `ScanResult` table | File 03 §2 |
-| `DataExport`, `ListingMetricDaily`, `OtherEntry`, `JobRun`, `EmailOutbox`, `IdempotencyKey` tables deferred | File 03 §2: computed on demand or logged |
+| `Booking` table (merges RentalRequest + ServiceAppointment + AccommodationInquiry) — **planned Slice 4** | File 03 §2 |
+| `Place` table (merges State + City + Neighborhood) — **planned Slice 2** | File 03 §2 |
+| `ContentBlock` (merges Banner + HelpArticle + StaticPage) — **planned Slice 5** | File 03 §2 |
+| `ChatMessage.meta Json` replaces `Offer` table — **planned Slice 3** | File 03 §2 |
+| `ModerationAction` with appeal columns — **planned Slice 5** | File 03 §2 |
+| `Payment.invoiceNo` instead of separate `Invoice` table — **planned Slice 5** | File 03 §2 |
+| `Listing.scan Json` instead of `ScanResult` table — **planned Slice 2** | File 03 §2 |
+| `DataExport`, `ListingMetricDaily`, `OtherEntry`, `JobRun`, `EmailOutbox`, `IdempotencyKey` tables — **planned Slice 5** | File 03 §2: computed on demand or logged |
+| `Category`, `CategoryAttribute`, `Listing`, `ListingMedia`, `ChatThread`, `ChatMessage`, `Booking`, `CandidateProfile`, `JobApplication`, `CvBuildRequest`, `BusinessProfile`, `BusinessStaff`, `Review`, `Report`, `ModerationAction`, `Blacklist`, `Notification`, `Broadcast`, `Payment`, `SupportTicket` — **planned Slices 2–5** | Not yet built |
 
 ## API / Features
 
@@ -39,7 +40,7 @@ File 03 (Fast-Track Simplification) overrides 01 and 02 where they conflict.
 | Dormant engines (M18) not built — flags exist, return 404 | File 03 §5: hidden at launch per PRD §11 |
 | No chunked/resumable video upload | File 03 §5: client compresses first |
 | No Arabic stemmer or synonym engine | File 03 §1 cut #8: normalizeArabic() + trigram sufficient |
-| Perceptual hash uses sha256 of processed image (exact match only) | File 03 §1 cut #9: catches reposts; dHash deferred |
+| Perceptual hash uses sha256 of processed image (exact match only) — **planned Slice 2** | File 03 §1 cut #9: catches reposts; dHash deferred |
 | Video poster uploaded by client (`posterMediaId`) instead of server ffmpeg extraction | File 03 §1 cut #10 |
 | Offset cursor instead of keyset pagination | File 03 §1 cut #7: simpler SQL; frontend sees opaque `nextCursor` |
 | Idempotency only for chat messages (DB unique) and payments (reference unique) | File 03 §1 cut #5 |
@@ -50,13 +51,13 @@ File 03 (Fast-Track Simplification) overrides 01 and 02 where they conflict.
 
 | Deviation | Reason |
 |---|---|
-| mfaToken single-use enforced via in-memory Set (single-instance only) | B07 requirement; multi-instance would need Redis; noted in code |
+| MFA token single-use enforced via in-memory Map (single-instance only) | B07 requirement; multi-instance would need Redis; noted here |
 | Admin sessions are stateless JWT (tokenVersion revocation) | File 03 §2: no AdminSession table |
 
 ## Testing
 
 | Deviation | Reason |
 |---|---|
-| Vitest only for 8 core rules + B09-B11 additions | File 03 §6: Postman/Newman is the acceptance suite |
+| Vitest only for core rules (B-items) + B09-B11 additions | File 03 §6: Postman/Newman is the acceptance suite |
 | No 70% coverage gate | File 03 §6: revisit after launch |
-| Newman run not executed automatically | Newman not installed in this environment; collection generated at `postman/` |
+| Newman run requires manual execution | Newman not installed in CI environment; collection generated at `postman/` |
