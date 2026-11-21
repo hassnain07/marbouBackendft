@@ -1,0 +1,322 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ───────────────────────────────────────────────────────────────────
+
+enum AccountStatus {
+  ACTIVE
+  SUSPENDED
+  DEACTIVATED
+  PENDING_DELETION
+}
+
+enum Capability {
+  SELLER
+  DEALER
+  EMPLOYER
+  SERVICE_PROVIDER
+  CANDIDATE
+}
+
+enum AdminRole {
+  SUPER_ADMIN
+  CONTENT_MODERATOR
+  SUPPORT_AGENT
+  FINANCIAL_AUDITOR
+}
+
+enum Language {
+  AR
+  EN
+}
+
+enum Currency {
+  SDG
+  USD
+}
+
+enum OtpPurpose {
+  REGISTER
+  RESET
+  CHANGE_EMAIL
+  PHONE
+  DELETE_ACCOUNT
+}
+
+enum OtpChannel {
+  EMAIL
+  SMS
+  WHATSAPP
+}
+
+// ─── Identity & Access ───────────────────────────────────────────────────────
+
+model User {
+  id                   String          @id @default(uuid())
+  email                String?         @unique
+  emailVerifiedAt      DateTime?
+  phone                String?
+  verifiedPhone        String?         @unique
+  passwordHash         String?
+  fullName             String
+  avatarUrl            String?
+  coverUrl             String?
+  bio                  String?
+  city                 String?
+  countryCode          String          @default("SD")
+  languages            String[]        @default([])
+  contactPrefs         Json            @default("{\"call\":true,\"whatsapp\":true,\"chatOnly\":false}")
+  language             Language        @default(AR)
+  status               AccountStatus   @default(ACTIVE)
+  statusReason         String?
+  statusUntil          DateTime?
+  capabilities         Capability[]    @default([])
+  badges               String[]        @default([])
+  notifPrefs           Json            @default("{}")
+  deviceTokens         Json            @default("[]")
+  employerProfile      Json?
+  serviceProfile       Json?
+  ratingAvg            Float           @default(0)
+  ratingCount          Int             @default(0)
+  responseRate         Float?
+  avgResponseMin       Int?
+  fraudScore           Int             @default(0)
+  lastActiveAt         DateTime        @default(now())
+  deactivatedAt        DateTime?
+  deletionRequestedAt  DateTime?
+  deletedAt            DateTime?
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+
+  sessions             Session[]
+  otpCodes             OtpCode[]
+  loginEvents          LoginEvent[]
+  socialIdentities     SocialIdentity[]
+  verificationRequests VerificationRequest[]
+  blocksGiven          BlockedUser[]   @relation("blocker")
+  blocksReceived       BlockedUser[]   @relation("blocked")
+  analyticsEvents      AnalyticsEvent[]
+
+  @@index([email])
+  @@index([status])
+}
+
+model Session {
+  id              String    @id @default(uuid())
+  userId          String
+  familyId        String
+  refreshHash     String    @unique
+  prevRefreshHash String?
+  deviceId        String?
+  deviceName      String?
+  os              String?
+  ip              String?
+  approxLocation  String?
+  lastActiveAt    DateTime  @default(now())
+  revokedAt       DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([familyId])
+}
+
+model OtpCode {
+  id        String      @id @default(uuid())
+  email     String?
+  phone     String?
+  userId    String?
+  purpose   OtpPurpose
+  channel   OtpChannel
+  codeHash  String
+  attempts  Int         @default(0)
+  expiresAt DateTime
+  usedAt    DateTime?
+  sentAt    DateTime    @default(now())
+  createdAt DateTime    @default(now())
+
+  user      User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([email, purpose])
+  @@index([phone, purpose])
+}
+
+model LoginEvent {
+  id         String   @id @default(uuid())
+  userId     String?
+  email      String
+  outcome    String
+  ip         String
+  deviceId   String?
+  deviceName String?
+  createdAt  DateTime @default(now())
+
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([email, createdAt])
+  @@index([ip, createdAt])
+  @@index([userId, createdAt])
+}
+
+model SocialIdentity {
+  id         String   @id @default(uuid())
+  userId     String
+  provider   String
+  providerId String
+  email      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerId])
+  @@index([userId])
+}
+
+model AdminUser {
+  id               String    @id @default(uuid())
+  email            String    @unique
+  passwordHash     String
+  fullName         String
+  role             AdminRole
+  totpSecretEnc    String?
+  totpEnrolledAt   DateTime?
+  ipAllowlist      String[]  @default([])
+  isActive         Boolean   @default(true)
+  mustChangePassword Boolean @default(false)
+  tokenVersion     Int       @default(0)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+}
+
+model VerificationRequest {
+  id           String   @id @default(uuid())
+  userId       String
+  kind         String
+  documentKeys String[] @default([])
+  status       String   @default("PENDING")
+  reason       String?
+  decidedBy    String?
+  decidedAt    DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+}
+
+model BlockedUser {
+  id        String   @id @default(uuid())
+  blockerId String
+  blockedId String
+  createdAt DateTime @default(now())
+
+  blocker   User     @relation("blocker", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked   User     @relation("blocked", fields: [blockedId], references: [id], onDelete: Cascade)
+
+  @@unique([blockerId, blockedId])
+  @@index([blockerId])
+}
+
+// ─── Config & Catalog ────────────────────────────────────────────────────────
+
+model Setting {
+  key       String   @id
+  value     Json
+  updatedBy String?
+  updatedAt DateTime @updatedAt
+}
+
+model ExchangeRate {
+  id            String   @id @default(uuid())
+  base          String
+  quote         String
+  rate          Decimal  @db.Decimal(18, 6)
+  effectiveFrom DateTime @default(now())
+  setBy         String?
+  createdAt     DateTime @default(now())
+
+  @@index([base, quote, effectiveFrom])
+}
+
+model Translation {
+  id        String   @id @default(uuid())
+  key       String
+  lang      String
+  value     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([key, lang])
+  @@index([lang])
+}
+
+// ─── Media ───────────────────────────────────────────────────────────────────
+
+model MediaAsset {
+  id          String   @id @default(uuid())
+  ownerId     String
+  kind        String
+  isPrivate   Boolean  @default(false)
+  key         String   @unique
+  url         String?
+  thumbKeys   Json?
+  sizeBytes   Int
+  mime        String
+  width       Int?
+  height      Int?
+  durationSec Int?
+  attachedAt  DateTime?
+  createdAt   DateTime @default(now())
+
+  @@index([ownerId])
+  @@index([attachedAt])
+}
+
+// ─── Audit & Analytics ───────────────────────────────────────────────────────
+
+model AuditLog {
+  id        BigInt   @id @default(autoincrement())
+  actorType String
+  actorId   String
+  action    String
+  entity    String
+  entityId  String
+  before    Json?
+  after     Json?
+  prevHash  String
+  hash      String
+  createdAt DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@index([actorId])
+  @@index([createdAt])
+}
+
+model AnalyticsEvent {
+  id         String   @id @default(uuid())
+  type       String
+  userHash   String?
+  deviceHash String?
+  listingId  String?
+  categoryId String?
+  cityId     String?
+  props      Json     @default("{}")
+  userId     String?
+  createdAt  DateTime @default(now())
+
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([type, createdAt])
+  @@index([listingId, type, createdAt])
+}
