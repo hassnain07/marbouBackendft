@@ -100,8 +100,45 @@ export async function buildValidator(categoryId: string, partial = false): Promi
     shape[key] = buildFieldSchema(def.dataType, def.rules, def.options, partial ? false : def.isRequired);
   }
 
+  // Collect dependsOn rules from SINGLE_SELECT options
+  const dependsOnRules: Array<{ key: string; value: string; depAttr: string; depValue: string }> = [];
+  for (const [key, def] of attrMap) {
+    if (def.dataType === 'SINGLE_SELECT' && def.options) {
+      for (const opt of def.options) {
+        if (opt.dependsOn && typeof opt.dependsOn === 'object') {
+          const dep = opt.dependsOn as Record<string, string>;
+          const depAttr = dep.attr;
+          const depValue = dep.value;
+          if (depAttr && depValue) {
+            dependsOnRules.push({ key, value: opt.value, depAttr, depValue });
+          }
+        }
+      }
+    }
+  }
+
   // Unknown keys rejected
-  const schema = z.object(shape).strict();
+  let schema: z.ZodTypeAny = z.object(shape).strict();
+
+  // Apply dependsOn superRefine if there are any rules
+  if (dependsOnRules.length > 0) {
+    schema = (schema as z.ZodObject<z.ZodRawShape>).superRefine((data: Record<string, unknown>, ctx) => {
+      for (const rule of dependsOnRules) {
+        const selectedValue = data[rule.key];
+        if (selectedValue === rule.value) {
+          // This option requires depAttr === depValue
+          if (data[rule.depAttr] !== rule.depValue) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: [rule.key],
+              message: `Value "${rule.value}" requires ${rule.depAttr} to be "${rule.depValue}"`,
+            });
+          }
+        }
+      }
+    });
+  }
+
   validatorCache.set(cacheKey, schema);
   return schema;
 }

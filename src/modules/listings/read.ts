@@ -54,7 +54,7 @@ export async function getListing(
   }
 
   const readableId = `MARBOU-${String(listing.publicSeq).padStart(5, '0')}`;
-  const shareUrl = `${process.env.PUBLIC_WEB_URL ?? 'http://localhost:3000'}/listing/${readableId}`;
+  const shareUrl = `${(await import('../../config/env')).env.PUBLIC_WEB_URL}/listing/${readableId}`;
 
   const owner = listing.owner;
   const sellerCard = {
@@ -123,7 +123,6 @@ export async function getListing(
       lat: listing.lat,
       lng: listing.lng,
       vehicleVin: listing.vehicleVin,
-      ownershipDocKey: listing.ownershipDocKey,
       scan: listing.scan,
     };
   }

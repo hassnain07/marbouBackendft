@@ -1,18 +1,18 @@
+import { createHash } from 'crypto';
 import sanitizeHtml from 'sanitize-html';
 import { Decimal } from '@prisma/client/runtime/library';
 import { db } from '../../shared/db';
 import { E } from '../../shared/errors';
 import { settings } from '../../shared/settings';
-import { toSearchText } from '../../shared/arabic';
 import { buildValidator } from '../catalog/validator';
 import { computeQuality } from './quality';
+import { assertCanPublish, resolveStatus, cleanText, buildSearchText } from './create';
 import type { ListingStatus } from '@prisma/client';
 
-function clean(s: string): string {
-  return sanitizeHtml(s, { allowedTags: [], allowedAttributes: {} }).trim();
-}
-
 // ─── PATCH listing ────────────────────────────────────────────────────────────
+
+const LOCKED_STATUSES = ['SUSPENDED'] as const;
+const PATCH_ALLOWED_STATUSES = ['ACTIVE', 'DRAFT', 'EXPIRED', 'SOLD', 'ARCHIVED', 'HIDDEN', 'AUTO_HIDDEN', 'PENDING_REVIEW'];
 
 export async function patchListing(
   requesterId: string,
@@ -23,12 +23,13 @@ export async function patchListing(
   if (!listing || listing.deletedAt) throw E.notFound('LISTING_NOT_FOUND');
   if (listing.ownerId !== requesterId) throw E.forbidden();
   if (['SOLD', 'EXPIRED'].includes(listing.status)) throw E.rule('LISTING_NOT_EDITABLE');
+  if (LOCKED_STATUSES.includes(listing.status as never)) throw E.rule('LISTING_LOCKED');
 
   const changedFields: string[] = [];
   const data: Record<string, unknown> = {};
 
-  if (input.title !== undefined) { data.title = clean(input.title as string); changedFields.push('title'); }
-  if (input.description !== undefined) { data.description = clean(input.description as string); changedFields.push('description'); }
+  if (input.title !== undefined) { data.title = cleanText(input.title as string); changedFields.push('title'); }
+  if (input.description !== undefined) { data.description = cleanText(input.description as string); changedFields.push('description'); }
   if (input.price !== undefined) { data.price = new Decimal(input.price as number); changedFields.push('price'); }
   if (input.currency !== undefined) { data.currency = input.currency; changedFields.push('currency'); }
   if (input.isNegotiable !== undefined) { data.isNegotiable = input.isNegotiable; changedFields.push('isNegotiable'); }
@@ -36,7 +37,7 @@ export async function patchListing(
   if (input.locationName !== undefined) { data.locationName = input.locationName; changedFields.push('locationName'); }
   if (input.contactOptions !== undefined) { data.contactOptions = input.contactOptions as never; changedFields.push('contactOptions'); }
   if (input.dynamicAttributes !== undefined) {
-    const validator = await buildValidator(listing.categoryId, true); // partial=true: skip required checks on edit
+    const validator = await buildValidator(listing.categoryId, true);
     const parsed = validator.safeParse(input.dynamicAttributes);
     if (!parsed.success) throw E.badRequest('VALIDATION_ERROR', parsed.error.flatten().fieldErrors);
     data.dynamicAttributes = input.dynamicAttributes as never;
@@ -47,8 +48,9 @@ export async function patchListing(
   if (data.title || data.description || data.dynamicAttributes) {
     const title = (data.title as string | undefined) ?? listing.title;
     const description = (data.description as string | undefined) ?? listing.description;
-    const attrValues = Object.values((data.dynamicAttributes ?? listing.dynamicAttributes) as Record<string, unknown>).map(String).join(' ');
-    data.searchText = toSearchText(title, description, attrValues, listing.category.nameAr, listing.category.nameEn);
+    const attrs = (data.dynamicAttributes ?? listing.dynamicAttributes) as Record<string, unknown>;
+    const attrDefs = await db.categoryAttribute.findMany({ where: { categoryId: listing.categoryId } });
+    data.searchText = buildSearchText(title, description, listing.customOtherText, attrs, attrDefs, listing.category.nameAr, listing.category.nameEn);
   }
 
   const updated = await db.listing.update({ where: { id: listingId }, data: data as never });
@@ -57,7 +59,12 @@ export async function patchListing(
     await db.analyticsEvent.create({
       data: { type: 'listing_edited', listingId, userId: requesterId, props: { fields: changedFields } as never },
     });
-    setImmediate(() => { import('./scan').then((m) => m.scanListing(listingId)).catch(() => {}); });
+    // AUTO_HIDDEN and PENDING_REVIEW: re-scan after edit
+    if (['AUTO_HIDDEN', 'PENDING_REVIEW'].includes(listing.status)) {
+      setImmediate(() => { import('./scan').then((m) => m.scanListing(listingId)).catch(() => {}); });
+    } else {
+      setImmediate(() => { import('./scan').then((m) => m.scanListing(listingId)).catch(() => {}); });
+    }
   }
 
   return { id: updated.id, status: updated.status };
@@ -74,12 +81,17 @@ export async function publishListing(requesterId: string, listingId: string) {
   const cat = await db.category.findUnique({ where: { id: listing.categoryId } });
   if (cat?.postingRestricted) throw E.rule('CATEGORY_POSTING_DISABLED', { message: cat.postingMessage });
 
+  const user = await db.user.findUniqueOrThrow({ where: { id: requesterId } });
   const expiryDays = cat?.expiryDays ?? await settings.get<number>('listing.expiryDaysDefault', 30);
   const expiresAt = new Date(Date.now() + expiryDays * 86400000);
 
-  const updated = await db.listing.update({
-    where: { id: listingId },
-    data: { status: 'ACTIVE', publishedAt: new Date(), expiresAt },
+  const updated = await db.$transaction(async (tx) => {
+    await assertCanPublish(tx, user, listing.categoryId);
+    const status = await resolveStatus(user, listing.categoryId, 'ACTIVE');
+    return tx.listing.update({
+      where: { id: listingId },
+      data: { status, publishedAt: new Date(), expiresAt },
+    });
   });
 
   await db.analyticsEvent.create({ data: { type: 'listing_published', listingId, userId: requesterId, props: {} as never } });
@@ -110,10 +122,25 @@ export async function renewListing(requesterId: string, listingId: string) {
   const expiryDays = cat?.expiryDays ?? await settings.get<number>('listing.expiryDaysDefault', 30);
   const expiresAt = new Date(Date.now() + expiryDays * 86400000);
 
-  const updated = await db.listing.update({
-    where: { id: listingId },
-    data: { status: 'ACTIVE', expiresAt, reminded7: false, reminded1: false },
+  const user = await db.user.findUniqueOrThrow({ where: { id: requesterId } });
+
+  const updated = await db.$transaction(async (tx) => {
+    // For EXPIRED listings, check cap only (not rate limits — renew is not a new publish)
+    if (isExpired) {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${requesterId}))`;
+      const activeCount = await tx.listing.count({
+        where: { ownerId: requesterId, status: { in: ['ACTIVE', 'PENDING_REVIEW'] }, deletedAt: null },
+      });
+      const capLimit = await settings.get<number>('limits.activeListingsIndividual', 50);
+      if (activeCount >= capLimit) throw E.rule('LISTING_CAP_REACHED');
+    }
+    return tx.listing.update({
+      where: { id: listingId },
+      data: { status: 'ACTIVE', expiresAt, reminded7: false, reminded1: false, publishedAt: new Date() },
+    });
   });
+
+  void user; // suppress unused warning
   return { id: updated.id, status: updated.status, expiresAt: updated.expiresAt };
 }
 
@@ -123,6 +150,8 @@ export async function markSold(requesterId: string, listingId: string) {
   const listing = await db.listing.findUnique({ where: { id: listingId } });
   if (!listing || listing.deletedAt) throw E.notFound('LISTING_NOT_FOUND');
   if (listing.ownerId !== requesterId) throw E.forbidden();
+  // Only ACTIVE listings can be marked sold
+  if (listing.status !== 'ACTIVE') throw E.rule('LISTING_NOT_EDITABLE');
   const updated = await db.listing.update({
     where: { id: listingId },
     data: { status: 'SOLD', soldAt: new Date() },
@@ -132,10 +161,13 @@ export async function markSold(requesterId: string, listingId: string) {
 
 // ─── Archive ──────────────────────────────────────────────────────────────────
 
+const ARCHIVABLE = ['ACTIVE', 'EXPIRED', 'SOLD', 'HIDDEN', 'DRAFT'] as const;
+
 export async function archiveListing(requesterId: string, listingId: string) {
   const listing = await db.listing.findUnique({ where: { id: listingId } });
   if (!listing || listing.deletedAt) throw E.notFound('LISTING_NOT_FOUND');
   if (listing.ownerId !== requesterId) throw E.forbidden();
+  if (!ARCHIVABLE.includes(listing.status as never)) throw E.rule('LISTING_NOT_EDITABLE');
   const updated = await db.listing.update({ where: { id: listingId }, data: { status: 'ARCHIVED' } });
   return { id: updated.id, status: updated.status };
 }
@@ -177,14 +209,18 @@ export async function duplicateListing(requesterId: string, listingId: string) {
       locationName: listing.locationName,
       isApproxLocation: listing.isApproxLocation,
       approxRadiusM: listing.approxRadiusM,
+      lat: listing.lat,
+      lng: listing.lng,
+      pubLat: listing.pubLat,
+      pubLng: listing.pubLng,
       contactOptions: listing.contactOptions as never,
       dynamicAttributes: listing.dynamicAttributes as never,
       cityId: listing.cityId,
       neighborhoodId: listing.neighborhoodId,
+      videoMediaId: listing.videoMediaId,
     },
   });
 
-  // Copy media rows (new listing, same assets)
   for (const m of listing.media) {
     await db.listingMedia.create({
       data: { listingId: copy.id, mediaId: m.mediaId, url: m.url, thumbUrl: m.thumbUrl, position: m.position, isCover: m.isCover, hash: m.hash },
@@ -202,14 +238,30 @@ export async function bulkAction(
   ids: string[],
 ) {
   const user = await db.user.findUniqueOrThrow({ where: { id: requesterId } });
-  const isDealer = user.capabilities.includes('DEALER');
-  if (!isDealer) throw E.forbidden('CAPABILITY_REQUIRED');
+  if (!user.capabilities.includes('DEALER')) throw E.forbidden('CAPABILITY_REQUIRED');
+
+  // Load all owned rows in one query; unknown/unowned ids get NOT_FOUND
+  const owned = await db.listing.findMany({
+    where: { id: { in: ids }, ownerId: requesterId, deletedAt: null },
+    select: { id: true },
+  });
+  const ownedSet = new Set(owned.map((l) => l.id));
 
   const results: { id: string; ok: boolean; error?: string }[] = [];
   for (const id of ids) {
+    if (!ownedSet.has(id)) {
+      results.push({ id, ok: false, error: 'NOT_FOUND' });
+      continue;
+    }
     try {
       if (action === 'RENEW') await renewListing(requesterId, id);
-      else if (action === 'HIDE') await db.listing.update({ where: { id }, data: { status: 'HIDDEN' } });
+      else if (action === 'HIDE') {
+        // HIDE goes through a checked path
+        const l = await db.listing.findUnique({ where: { id } });
+        if (!l || l.deletedAt) throw E.notFound('LISTING_NOT_FOUND');
+        if (LOCKED_STATUSES.includes(l.status as never)) throw E.rule('LISTING_LOCKED');
+        await db.listing.update({ where: { id }, data: { status: 'HIDDEN' } });
+      }
       else if (action === 'SOLD') await markSold(requesterId, id);
       else if (action === 'DELETE') await deleteListing(requesterId, id);
       results.push({ id, ok: true });
@@ -241,6 +293,7 @@ export async function qualityPreview(
     requiredKeys,
     optionalKeys,
   }, weights as Parameters<typeof computeQuality>[1]);
+  void ownerId;
   return { qualityScore: score };
 }
 
@@ -265,26 +318,30 @@ export async function contactReveal(
   const policy = await settings.get<string>('flags.contactReveal.policy', 'GUESTS_RATE_LIMITED');
   if (policy === 'SIGNED_IN_ONLY' && !requesterId) throw E.unauthorized();
 
-  // Guest rate limit
+  // Check phone BEFORE recording anything
+  const owner = listing.owner;
+  const phone = owner.phone ?? owner.verifiedPhone;
+  if (!phone) throw E.rule('CONTACT_UNAVAILABLE');
+
+  // Guest rate limit — use advisory lock + await (no setImmediate)
   if (!requesterId) {
-    const actorKey = require('crypto').createHash('sha256').update(deviceId ?? ip ?? 'anon').digest('hex');
+    const actorKey = createHash('sha256').update(deviceId ?? ip ?? 'anon').digest('hex');
     const dayAgo = new Date(Date.now() - 86400000);
     const guestLimit = await settings.get<number>('limits.guestRevealsPerDay', 20);
-    const count = await db.analyticsEvent.count({
-      where: { type: 'contact_reveal', actorKey, createdAt: { gte: dayAgo } },
-    });
-    if (count >= guestLimit) throw E.tooMany('REVEAL_LIMIT');
-    const actorKeyVal = actorKey;
-    setImmediate(() => {
-      db.analyticsEvent.create({ data: { type: 'contact_reveal', listingId, actorKey: actorKeyVal, props: { channel } as never } }).catch(() => {});
+
+    await db.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${actorKey}))`;
+      const count = await tx.analyticsEvent.count({
+        where: { type: 'contact_reveal', actorKey, createdAt: { gte: dayAgo } },
+      });
+      if (count >= guestLimit) throw E.tooMany('REVEAL_LIMIT');
+      await tx.analyticsEvent.create({
+        data: { type: 'contact_reveal', listingId, actorKey, props: { channel } as never },
+      });
     });
   } else {
     await db.analyticsEvent.create({ data: { type: 'contact_reveal', listingId, userId: requesterId, props: { channel } as never } });
   }
-
-  const owner = listing.owner;
-  const phone = owner.phone ?? owner.verifiedPhone;
-  if (!phone) throw E.rule('CONTACT_UNAVAILABLE');
 
   // Increment lead count
   await db.listing.update({ where: { id: listingId }, data: { leadCount: { increment: 1 } } });

@@ -25,6 +25,21 @@ async function cleanOrphanMedia(): Promise<void> {
   if (count > 0) console.log(`[cron] Cleaned ${count} orphan media assets`);
 }
 
+// Scan PENDING_REVIEW listings older than 2 minutes that haven't been scanned yet
+async function sweepPendingReview(): Promise<void> {
+  const { scanListing } = await import('./modules/listings/scan');
+  const cutoff = new Date(Date.now() - 2 * 60 * 1000);
+  const stuck = await db.listing.findMany({
+    where: { status: 'PENDING_REVIEW', createdAt: { lt: cutoff } },
+    select: { id: true },
+    take: 50,
+  });
+  for (const l of stuck) {
+    await scanListing(l.id).catch((e) => console.error('[cron] sweep scan error:', e));
+  }
+  if (stuck.length > 0) console.log(`[cron] Swept ${stuck.length} PENDING_REVIEW listings`);
+}
+
 export function startCron(): void {
   if (!runCron) return;
 
@@ -41,6 +56,11 @@ export function startCron(): void {
   // Daily at 04:00 UTC: clean orphan media
   cron.schedule('0 4 * * *', () => {
     cleanOrphanMedia().catch((e) => console.error('[cron] orphan media error:', e));
+  });
+
+  // Every 5 min: scan stuck PENDING_REVIEW listings
+  cron.schedule('*/5 * * * *', () => {
+    sweepPendingReview().catch((e) => console.error('[cron] sweep error:', e));
   });
 
   console.log('[cron] Scheduler started');
