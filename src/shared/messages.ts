@@ -63,6 +63,45 @@ const MESSAGES: Record<string, LangMap> = {
   SETTING_NOT_FOUND: { ar: 'الإعداد غير موجود', en: 'Setting not found' },
   SETTING_INVALID_VALUE: { ar: 'قيمة الإعداد غير صالحة', en: 'Invalid setting value' },
 
+  // Catalog
+  CATEGORY_NOT_FOUND: { ar: 'الفئة غير موجودة', en: 'Category not found' },
+  CATEGORY_POSTING_DISABLED: { ar: 'النشر في هذه الفئة غير مسموح', en: 'Posting in this category is disabled' },
+  ATTRIBUTE_NOT_FOUND: { ar: 'الخاصية غير موجودة', en: 'Attribute not found' },
+  ATTRIBUTE_IN_USE: { ar: 'الخاصية مستخدمة في إعلانات، أرشفها بدلاً من الحذف', en: 'Attribute is in use by listings, archive instead' },
+
+  // Media
+  FILE_TOO_LARGE: { ar: 'حجم الملف كبير جداً', en: 'File too large' },
+  UNSUPPORTED_IMAGE_FORMAT: { ar: 'صيغة الصورة غير مدعومة', en: 'Unsupported image format' },
+  UNSUPPORTED_VIDEO_FORMAT: { ar: 'صيغة الفيديو غير مدعومة', en: 'Unsupported video format' },
+  UNSUPPORTED_DOCUMENT_FORMAT: { ar: 'صيغة المستند غير مدعومة', en: 'Unsupported document format' },
+  VIDEO_DISABLED: { ar: 'رفع الفيديو غير متاح حالياً', en: 'Video upload is disabled' },
+  VIDEO_TOO_LARGE: { ar: 'حجم الفيديو كبير جداً', en: 'Video file too large' },
+  VIDEO_TOO_LONG: { ar: 'مدة الفيديو تتجاوز الحد المسموح', en: 'Video duration exceeds limit' },
+  VIDEO_PROBE_FAILED: { ar: 'تعذر قراءة ملف الفيديو', en: 'Could not read video file' },
+  MEDIA_IN_USE: { ar: 'الملف مرتبط بمحتوى ولا يمكن حذفه', en: 'Media is in use and cannot be deleted' },
+  MEDIA_NOT_PRIVATE: { ar: 'الملف ليس خاصاً', en: 'Media is not private' },
+  MEDIA_WRONG_KIND: { ar: 'نوع الملف غير مناسب', en: 'Wrong media kind' },
+  IMAGE_REJECTED: { ar: 'الصورة غير مقبولة', en: 'Image rejected by classifier' },
+  INVALID_PURPOSE: { ar: 'الغرض غير صالح', en: 'Invalid upload purpose' },
+  NO_FILE: { ar: 'لم يتم إرفاق ملف', en: 'No file attached' },
+  OTP_NOT_FOUND: { ar: 'لم يتم العثور على رمز التحقق', en: 'No OTP found' },
+
+  // Listings
+  LISTING_NOT_FOUND: { ar: 'الإعلان غير موجود', en: 'Listing not found' },
+  LISTING_CAP_REACHED: { ar: 'وصلت إلى الحد الأقصى للإعلانات النشطة', en: 'Active listing cap reached' },
+  LISTING_RATE_LIMIT: { ar: 'تجاوزت حد نشر الإعلانات، حاول لاحقاً', en: 'Listing rate limit exceeded' },
+  LISTING_NOT_EDITABLE: { ar: 'لا يمكن تعديل هذا الإعلان', en: 'Listing cannot be edited' },
+  LISTING_NOT_DRAFT: { ar: 'الإعلان ليس مسودة', en: 'Listing is not a draft' },
+  LISTING_NOT_RENEWABLE: { ar: 'الإعلان غير قابل للتجديد الآن', en: 'Listing is not renewable now' },
+  RENEW_WINDOW_EXPIRED: { ar: 'انتهت فترة التجديد المسموحة', en: 'Renewal window has expired' },
+  CUSTOM_OTHER_TEXT_REQUIRED: { ar: 'يجب إدخال نص الفئة الأخرى', en: 'Custom other text is required' },
+  INVALID_PRICE: { ar: 'السعر غير صالح', en: 'Invalid price' },
+  INVALID_CURRENCY: { ar: 'العملة غير مدعومة', en: 'Unsupported currency' },
+  CAPABILITY_REQUIRED: { ar: 'هذه الميزة تتطلب صلاحية خاصة', en: 'This feature requires a capability' },
+  CONTACT_HIDDEN: { ar: 'طريقة التواصل هذه غير متاحة', en: 'This contact channel is hidden' },
+  CONTACT_UNAVAILABLE: { ar: 'معلومات التواصل غير متوفرة', en: 'Contact info not available' },
+  REVEAL_LIMIT: { ar: 'تجاوزت حد الكشف عن معلومات التواصل اليومي', en: 'Daily contact reveal limit reached' },
+
   // OTP email templates
   OTP_EMAIL_SUBJECT_REGISTER: { ar: 'رمز التحقق من مربو', en: 'Your MARBOU verification code' },
   OTP_EMAIL_SUBJECT_RESET: { ar: 'إعادة تعيين كلمة المرور - مربو', en: 'Reset your MARBOU password' },

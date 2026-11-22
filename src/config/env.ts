@@ -23,9 +23,13 @@ const envSchema = z.object({
   RATE_LIMIT_STRICT_PER_MIN: z.coerce.number().default(20),
   RATE_LIMIT_NORMAL_PER_MIN: z.coerce.number().default(300),
 
+  PUBLIC_API_URL: z.string().default('http://localhost:4000'),
+
   STORAGE_DRIVER: z.enum(['local']).default('local'),
   STORAGE_LOCAL_PATH: z.string().default('./storage'),
   STORAGE_PUBLIC_URL: z.string().default('http://localhost:4000/files'),
+
+  FFPROBE_PATH: z.string().optional(),
 
   EMAIL_DRIVER: z.enum(['console', 'smtp']).default('console'),
   SMTP_URL: z.string().optional(),

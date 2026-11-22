@@ -55,6 +55,43 @@ enum OtpChannel {
   WHATSAPP
 }
 
+enum ListingType {
+  SALE
+  RENT
+  WANTED
+  SERVICE
+  JOB
+}
+
+enum ListingStatus {
+  DRAFT
+  PENDING_REVIEW
+  ACTIVE
+  HIDDEN
+  AUTO_HIDDEN
+  SUSPENDED
+  SOLD
+  EXPIRED
+  ARCHIVED
+}
+
+enum AttributeType {
+  TEXT
+  NUMBER
+  BOOLEAN
+  SINGLE_SELECT
+  MULTI_SELECT
+  DATE
+  RANGE
+  FILE_URL
+}
+
+enum PlaceLevel {
+  STATE
+  CITY
+  NEIGHBORHOOD
+}
+
 // ─── Identity & Access ───────────────────────────────────────────────────────
 
 model User {
@@ -102,6 +139,7 @@ model User {
   blocksGiven          BlockedUser[]   @relation("blocker")
   blocksReceived       BlockedUser[]   @relation("blocked")
   analyticsEvents      AnalyticsEvent[]
+  listings             Listing[]
 
   @@index([email])
   @@index([status])
@@ -182,34 +220,34 @@ model SocialIdentity {
 }
 
 model AdminUser {
-  id               String    @id @default(uuid())
-  email            String    @unique
-  passwordHash     String
-  fullName         String
-  role             AdminRole
-  totpSecretEnc    String?
-  totpEnrolledAt   DateTime?
-  ipAllowlist      String[]  @default([])
-  isActive         Boolean   @default(true)
-  mustChangePassword Boolean @default(false)
-  tokenVersion     Int       @default(0)
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  id                 String    @id @default(uuid())
+  email              String    @unique
+  passwordHash       String
+  fullName           String
+  role               AdminRole
+  totpSecretEnc      String?
+  totpEnrolledAt     DateTime?
+  ipAllowlist        String[]  @default([])
+  isActive           Boolean   @default(true)
+  mustChangePassword Boolean   @default(false)
+  tokenVersion       Int       @default(0)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 }
 
 model VerificationRequest {
-  id           String   @id @default(uuid())
+  id           String    @id @default(uuid())
   userId       String
   kind         String
-  documentKeys String[] @default([])
-  status       String   @default("PENDING")
+  documentKeys String[]  @default([])
+  status       String    @default("PENDING")
   reason       String?
   decidedBy    String?
   decidedAt    DateTime?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([status])
@@ -264,11 +302,11 @@ model Translation {
 // ─── Media ───────────────────────────────────────────────────────────────────
 
 model MediaAsset {
-  id          String   @id @default(uuid())
+  id          String        @id @default(uuid())
   ownerId     String
   kind        String
-  isPrivate   Boolean  @default(false)
-  key         String   @unique
+  isPrivate   Boolean       @default(false)
+  key         String        @unique
   url         String?
   thumbKeys   Json?
   sizeBytes   Int
@@ -276,11 +314,15 @@ model MediaAsset {
   width       Int?
   height      Int?
   durationSec Int?
+  sha256      String?
   attachedAt  DateTime?
-  createdAt   DateTime @default(now())
+  createdAt   DateTime      @default(now())
+
+  listingMedia ListingMedia[]
 
   @@index([ownerId])
   @@index([attachedAt])
+  @@index([sha256])
 }
 
 // ─── Audit & Analytics ───────────────────────────────────────────────────────
@@ -311,6 +353,7 @@ model AnalyticsEvent {
   listingId  String?
   categoryId String?
   cityId     String?
+  actorKey   String?
   props      Json     @default("{}")
   userId     String?
   createdAt  DateTime @default(now())
@@ -319,4 +362,183 @@ model AnalyticsEvent {
 
   @@index([type, createdAt])
   @@index([listingId, type, createdAt])
+}
+
+// ─── Geo ─────────────────────────────────────────────────────────────────────
+
+model Place {
+  id           String     @id @default(uuid())
+  level        PlaceLevel
+  parentId     String?
+  countryCode  String     @default("SD")
+  nameAr       String
+  nameEn       String
+  lat          Float?
+  lng          Float?
+  isActive     Boolean    @default(true)
+  displayOrder Int        @default(0)
+  createdAt    DateTime   @default(now())
+
+  parent      Place?     @relation("PlaceTree", fields: [parentId], references: [id])
+  children    Place[]    @relation("PlaceTree")
+
+  @@index([level, countryCode])
+  @@index([parentId])
+}
+
+// ─── Category ────────────────────────────────────────────────────────────────
+
+model Category {
+  id                String              @id @default(uuid())
+  slug              String              @unique
+  parentId          String?
+  nameAr            String
+  nameEn            String
+  descriptionAr     String?
+  descriptionEn     String?
+  iconUrl           String?
+  schemaVersion     Int                 @default(1)
+  postingRestricted Boolean             @default(false)
+  postingMessage    String?
+  expiryDays        Int?
+  supportsCompare   Boolean             @default(false)
+  isVideoAllowed    Boolean             @default(true)
+  isActive          Boolean             @default(true)
+  isArchived        Boolean             @default(false)
+  displayOrder      Int                 @default(0)
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  parent            Category?           @relation("CategoryTree", fields: [parentId], references: [id])
+  children          Category[]          @relation("CategoryTree")
+  attributes        CategoryAttribute[]
+  listings          Listing[]
+
+  @@index([parentId])
+  @@index([isActive, isArchived])
+  @@index([displayOrder])
+}
+
+model CategoryAttribute {
+  id              String        @id @default(uuid())
+  categoryId      String
+  attributeKey    String
+  labelAr         String
+  labelEn         String
+  dataType        AttributeType
+  isRequired      Boolean       @default(false)
+  isPrivate       Boolean       @default(false)
+  isFilterable    Boolean       @default(false)
+  isSearchable    Boolean       @default(false)
+  promoteToIndex  Boolean       @default(false)
+  showInCompare   Boolean       @default(false)
+  optionsList     Json?
+  validationRules Json?
+  dependsOn       String?
+  displayOrder    Int           @default(0)
+  isArchived      Boolean       @default(false)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  category        Category      @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([categoryId, attributeKey])
+  @@index([categoryId])
+  @@index([displayOrder])
+}
+
+// ─── Listings ────────────────────────────────────────────────────────────────
+
+model Listing {
+  id                String        @id @default(uuid())
+  publicSeq         Int           @unique @default(autoincrement())
+  ownerId           String
+  businessId        String?
+  countryCode       String        @default("SD")
+  cityId            String?
+  neighborhoodId    String?
+  categoryId        String
+  listingType       ListingType
+  title             String
+  description       String
+  searchText        String        @default("")
+  price             Decimal?      @db.Decimal(18, 2)
+  budgetMin         Decimal?      @db.Decimal(18, 2)
+  budgetMax         Decimal?      @db.Decimal(18, 2)
+  currency          String        @default("SDG")
+  isNegotiable      Boolean       @default(false)
+  condition         String?
+  status            ListingStatus @default(DRAFT)
+  statusReason      String?
+  isCustomOther     Boolean       @default(false)
+  customOtherText   String?
+  lat               Float?
+  lng               Float?
+  pubLat            Float?
+  pubLng            Float?
+  locationName      String?
+  isApproxLocation  Boolean       @default(false)
+  approxRadiusM     Int?
+  contactOptions    Json          @default("{\"call\":true,\"whatsapp\":true,\"chat\":true}")
+  dynamicAttributes Json          @default("{}")
+  qualityScore      Int           @default(0)
+  riskScore         Int           @default(0)
+  scan              Json?
+  viewCount         Int           @default(0)
+  favoriteCount     Int           @default(0)
+  leadCount         Int           @default(0)
+  videoMediaId      String?
+  videoUrl          String?
+  videoPosterUrl    String?
+  vehicleVin        String?
+  ownershipDocKey   String?
+  reminded7         Boolean       @default(false)
+  reminded1         Boolean       @default(false)
+  publishedAt       DateTime?
+  expiresAt         DateTime?
+  soldAt            DateTime?
+  deletedAt         DateTime?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  owner             User          @relation(fields: [ownerId], references: [id])
+  category          Category      @relation(fields: [categoryId], references: [id])
+  media             ListingMedia[]
+  views             ListingView[]
+
+  @@index([categoryId, status, publishedAt(sort: Desc)])
+  @@index([ownerId, status])
+  @@index([cityId, status])
+  @@index([pubLat, pubLng])
+}
+
+model ListingMedia {
+  id        String     @id @default(uuid())
+  listingId String
+  mediaId   String
+  url       String
+  thumbUrl  String?
+  position  Int        @default(0)
+  isCover   Boolean    @default(false)
+  hash      String?
+  createdAt DateTime   @default(now())
+
+  listing   Listing    @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  asset     MediaAsset @relation(fields: [mediaId], references: [id])
+
+  @@index([listingId])
+  @@index([mediaId])
+}
+
+model ListingView {
+  id        String   @id @default(uuid())
+  listingId String
+  viewerKey String
+  day       String
+  createdAt DateTime @default(now())
+
+  listing   Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@unique([listingId, viewerKey, day])
+  @@index([listingId])
 }

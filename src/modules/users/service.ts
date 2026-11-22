@@ -22,23 +22,37 @@ export async function updateMe(userId: string, input: {
   languages?: string[];
   contactPrefs?: Record<string, unknown>;
   language?: string;
+  avatarMediaId?: string;
+  coverMediaId?: string;
 }) {
   const data: Record<string, unknown> = {};
   if (input.fullName !== undefined) data.fullName = sanitize(input.fullName);
   if (input.bio !== undefined) data.bio = sanitize(input.bio);
   if (input.city !== undefined) data.city = sanitize(input.city);
   if (input.languages !== undefined) {
-    // B10: validate and size-limit languages array
     if (input.languages.length > 10) throw E.badRequest('TOO_MANY_LANGUAGES');
     data.languages = input.languages.map((l) => sanitize(String(l)).slice(0, 50));
   }
   if (input.contactPrefs !== undefined) {
-    // B10: merge with existing contactPrefs instead of replacing
     const existing = await db.user.findUniqueOrThrow({ where: { id: userId }, select: { contactPrefs: true } });
     const current = (existing.contactPrefs as Record<string, unknown>) ?? {};
     data.contactPrefs = { ...current, ...input.contactPrefs };
   }
   if (input.language !== undefined) data.language = input.language.toUpperCase();
+
+  // Avatar / cover media
+  if (input.avatarMediaId) {
+    const asset = await db.mediaAsset.findUnique({ where: { id: input.avatarMediaId } });
+    if (!asset || asset.ownerId !== userId) throw E.forbidden('MEDIA_NOT_OWNED');
+    await db.mediaAsset.update({ where: { id: input.avatarMediaId }, data: { attachedAt: new Date() } });
+    data.avatarUrl = asset.url;
+  }
+  if (input.coverMediaId) {
+    const asset = await db.mediaAsset.findUnique({ where: { id: input.coverMediaId } });
+    if (!asset || asset.ownerId !== userId) throw E.forbidden('MEDIA_NOT_OWNED');
+    await db.mediaAsset.update({ where: { id: input.coverMediaId }, data: { attachedAt: new Date() } });
+    data.coverUrl = asset.url;
+  }
 
   const user = await db.user.update({ where: { id: userId }, data });
   return serializeMe(user);
@@ -161,17 +175,21 @@ export async function removeDeviceToken(userId: string, token: string): Promise<
 // ─── Verification request ─────────────────────────────────────────────────────
 
 export async function submitVerification(userId: string, kind: string, documentMediaIds: string[]) {
-  // Check media ownership
   for (const mediaId of documentMediaIds) {
     const asset = await db.mediaAsset.findUnique({ where: { id: mediaId } });
     if (!asset) throw E.notFound('MEDIA_NOT_FOUND');
     if (asset.ownerId !== userId) throw E.forbidden('MEDIA_NOT_OWNED');
+    if (!asset.isPrivate) throw E.badRequest('MEDIA_NOT_PRIVATE');
   }
 
-  const existing = await db.verificationRequest.findFirst({
-    where: { userId, status: 'PENDING' },
-  });
+  const existing = await db.verificationRequest.findFirst({ where: { userId, status: 'PENDING' } });
   if (existing) throw E.conflict('VERIFICATION_PENDING');
+
+  // Attach media
+  await db.mediaAsset.updateMany({
+    where: { id: { in: documentMediaIds } },
+    data: { attachedAt: new Date() },
+  });
 
   return db.verificationRequest.create({
     data: { userId, kind, documentKeys: documentMediaIds, status: 'PENDING' },

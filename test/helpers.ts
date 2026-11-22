@@ -17,12 +17,12 @@ export async function clearTables() {
     throw new Error(`clearTables() refused: database "${dbName}" does not end with _test`);
   }
   await db.$executeRawUnsafe(`
-    TRUNCATE "AnalyticsEvent","AuditLog","BlockedUser","LoginEvent","MediaAsset",
+    TRUNCATE "ListingView","ListingMedia","Listing",
+    "AnalyticsEvent","AuditLog","BlockedUser","LoginEvent","MediaAsset",
     "OtpCode","Session","SocialIdentity","VerificationRequest","User",
     "AdminUser","ExchangeRate","Translation","Setting"
     RESTART IDENTITY CASCADE
-  `);
-}
+  `);}
 
 export async function seedSettings() {
   const defaults: Record<string, unknown> = {
@@ -32,6 +32,29 @@ export async function seedSettings() {
     'app.minVersion': { ios: '1.0.0', android: '1.0.0' },
     'currencies.enabled': ['SDG', 'USD'],
     'fx.staleAlertHours': 72,
+    'flags.video.enabled': true,
+    'media.photo.maxMB': 8,
+    'media.video.maxMB': 15,
+    'media.video.maxSeconds': 30,
+    'media.video.disabledCategoryIds': [],
+    'media.maxPhotos': 10,
+    'limits.activeListingsIndividual': 50,
+    'limits.activeListingsBusiness': 500,
+    'limits.listingsPerHour': 5,
+    'limits.listingsPerDay': 20,
+    'listing.expiryDaysDefault': 30,
+    'listing.renewWindowDays': 30,
+    'quality.weights': { titleDesc: 25, photos: 25, requiredAttrs: 20, optionalAttrs: 10, location: 10, video: 5, price: 5 },
+    'dup.textSimilarity': 0.85,
+    'moderation.autoHide': { reports: 5, windowHours: 24, fraudScore: 85 },
+    'moderation.delayedVisibility': [],
+    'moderation.bannedKeywords': [],
+    'chat.bannedPhrases': [],
+    'fraud.alert': 70,
+    'flags.contactReveal.policy': 'GUESTS_RATE_LIMITED',
+    'limits.guestRevealsPerDay': 20,
+    'whatsapp.template.ar': 'مرحباً، مهتم بـ {title} ({listingId}) بسعر {price}',
+    'whatsapp.template.en': 'Hi, interested in {title} ({listingId}) at {price}',
   };
   for (const [key, value] of Object.entries(defaults)) {
     await db.setting.upsert({
@@ -40,6 +63,41 @@ export async function seedSettings() {
       update: { value: value as never },
     });
   }
+}
+
+export async function createCategory(overrides: Partial<{
+  slug: string; nameAr: string; nameEn: string; parentId: string;
+  postingRestricted: boolean; postingMessage: string; expiryDays: number;
+}> = {}) {
+  return db.category.create({
+    data: {
+      slug: overrides.slug ?? `cat-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      nameAr: overrides.nameAr ?? 'تصنيف اختبار',
+      nameEn: overrides.nameEn ?? 'Test Category',
+      parentId: overrides.parentId ?? null,
+      postingRestricted: overrides.postingRestricted ?? false,
+      postingMessage: overrides.postingMessage,
+      expiryDays: overrides.expiryDays,
+    },
+  });
+}
+
+export async function createListing(
+  ownerId: string,
+  categoryId: string,
+  overrides: Record<string, unknown> = {},
+) {
+  const { createListing: svcCreate } = await import('../src/modules/listings/create');
+  return svcCreate(ownerId, {
+    categoryId,
+    listingType: 'SALE',
+    title: 'Test Listing Title Here',
+    description: 'Test listing description that is long enough to pass validation.',
+    price: 1000,
+    currency: 'SDG',
+    publish: true,
+    ...overrides,
+  } as Parameters<typeof svcCreate>[1]);
 }
 
 export async function createTestUser(overrides: Partial<{

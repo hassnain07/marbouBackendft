@@ -13,6 +13,8 @@ import { authRouter } from './modules/auth/routes';
 import { usersRouter } from './modules/users/routes';
 import { adminRouter } from './modules/admin/routes';
 import { catalogRouter } from './modules/catalog/routes';
+import { mediaRouter } from './modules/media/routes';
+import { listingsRouter } from './modules/listings/routes';
 import { storage } from './shared/storage';
 import { db } from './shared/db';
 import { generateOpenApiSpec } from './shared/openapi';
@@ -144,6 +146,8 @@ export function createApp() {
   app.use('/api/v1', authRouter);
   app.use('/api/v1', usersRouter);
   app.use('/api/v1', adminRouter);
+  app.use('/api/v1', mediaRouter);
+  app.use('/api/v1', listingsRouter);
 
   // ─── OpenAPI (generated from registry at runtime) ───────────────────────────
   let cachedSpec: ReturnType<typeof generateOpenApiSpec> | null = null;

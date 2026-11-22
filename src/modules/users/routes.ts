@@ -27,6 +27,8 @@ defineRoute({
       chatOnly: z.boolean().optional(),
     }).optional(),
     language: z.enum(['ar', 'en']).optional(),
+    avatarMediaId: z.string().uuid().optional(),
+    coverMediaId: z.string().uuid().optional(),
   }),
   handler: async ({ body, user }) => svc.updateMe(user!.id, body),
 });
