@@ -22,12 +22,12 @@ const createBody = z.object({
   condition: z.string().optional(),
   isCustomOther: z.boolean().optional(),
   customOtherText: z.string().max(80).optional(),
-  lat: z.number().optional(),
-  lng: z.number().optional(),
+  lat: z.number().min(-90).max(90).optional(),
+  lng: z.number().min(-180).max(180).optional(),
   locationName: z.string().max(200).optional(),
   isApproxLocation: z.boolean().optional(),
-  approxRadiusM: z.number().int().positive().optional(),
-  contactOptions: z.object({ call: z.boolean().optional(), whatsapp: z.boolean().optional(), chat: z.boolean().optional() }).optional(),
+  approxRadiusM: z.number().int().min(100).max(2000).optional(),
+  contactOptions: z.object({ call: z.boolean(), whatsapp: z.boolean(), chat: z.boolean() }).optional(),
   dynamicAttributes: z.record(z.unknown()).optional(),
   mediaIds: z.array(z.string().uuid()).max(20).optional(),
   coverMediaId: z.string().uuid().optional(),
@@ -37,6 +37,26 @@ const createBody = z.object({
   publish: z.boolean().optional(),
   status: z.string().optional(), // 'PUBLISH' | 'DRAFT' convenience alias
 });
+
+const patchBody = z.object({
+  title: z.string().min(3).max(200).optional(),
+  description: z.string().min(10).max(5000).optional(),
+  price: z.number().positive().max(1e12).optional(),
+  currency: z.enum(['SDG', 'USD']).optional(),
+  isNegotiable: z.boolean().optional(),
+  condition: z.string().optional(),
+  isCustomOther: z.boolean().optional(),
+  customOtherText: z.string().max(80).optional(),
+  locationName: z.string().max(200).optional(),
+  lat: z.number().min(-90).max(90).optional(),
+  lng: z.number().min(-180).max(180).optional(),
+  isApproxLocation: z.boolean().optional(),
+  approxRadiusM: z.number().int().min(100).max(2000).optional(),
+  cityId: z.string().uuid().optional(),
+  neighborhoodId: z.string().uuid().optional(),
+  contactOptions: z.object({ call: z.boolean(), whatsapp: z.boolean(), chat: z.boolean() }).optional(),
+  dynamicAttributes: z.record(z.unknown()).optional(),
+}).strict();
 
 // POST /listings
 defineRoute({
@@ -63,7 +83,7 @@ defineRoute({
   router: listingsRouter, method: 'patch', path: '/listings/:id',
   summary: 'Update a listing', tag: 'Listings', auth: 'verified',
   params: z.object({ id: z.string().uuid() }),
-  body: z.record(z.unknown()),
+  body: patchBody,
   handler: async ({ params, body, user }) => write.patchListing(user!.id, params.id, body),
 });
 
@@ -126,19 +146,22 @@ defineRoute({
   handler: async ({ body, user }) => write.bulkAction(user!.id, body.action, body.ids),
 });
 
+const listingStatusEnum = z.enum(['DRAFT', 'PENDING_REVIEW', 'ACTIVE', 'HIDDEN', 'AUTO_HIDDEN', 'SUSPENDED', 'SOLD', 'EXPIRED', 'ARCHIVED']);
+
 // GET /me/listings
 defineRoute({
   router: listingsRouter, method: 'get', path: '/me/listings',
   summary: 'Get my listings', tag: 'Listings', auth: 'user',
-  query: z.object({ status: z.string().optional() }),
-  handler: async ({ query, user }) => read.getMyListings(user!.id, query.status),
+  query: z.object({ status: listingStatusEnum.optional(), cursor: z.string().optional(), limit: z.coerce.number().int().min(1).max(50).default(20) }),
+  handler: async ({ query, user }) => read.getMyListings(user!.id, query.status, query.cursor, query.limit),
 });
 
 // GET /me/drafts
 defineRoute({
   router: listingsRouter, method: 'get', path: '/me/drafts',
   summary: 'Get my draft listings', tag: 'Listings', auth: 'user',
-  handler: async ({ user }) => read.getMyListings(user!.id, 'DRAFT'),
+  query: z.object({ cursor: z.string().optional(), limit: z.coerce.number().int().min(1).max(50).default(20) }),
+  handler: async ({ query, user }) => read.getMyListings(user!.id, 'DRAFT', query.cursor, query.limit),
 });
 
 // POST /listings/quality-preview

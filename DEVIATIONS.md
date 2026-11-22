@@ -24,14 +24,21 @@ File 03 (Fast-Track Simplification) overrides 01 and 02 where they conflict.
 | `AdminUser.tokenVersion Int` instead of `AdminSession` table | File 03 §2: stateless admin token revocation |
 | `User` has merged columns: `capabilities[]`, `badges[]`, `notifPrefs Json`, `deviceTokens Json`, `employerProfile Json?`, `serviceProfile Json?` | File 03 §2 merge rules |
 | `Booking` table (merges RentalRequest + ServiceAppointment + AccommodationInquiry) — **planned Slice 4** | File 03 §2 |
-| `Place` table (merges State + City + Neighborhood) — **planned Slice 2** | File 03 §2 |
+| `Place` table (merges State + City + Neighborhood) — added in Slice 2 | File 03 §2 |
 | `ContentBlock` (merges Banner + HelpArticle + StaticPage) — **planned Slice 5** | File 03 §2 |
 | `ChatMessage.meta Json` replaces `Offer` table — **planned Slice 3** | File 03 §2 |
 | `ModerationAction` with appeal columns — **planned Slice 5** | File 03 §2 |
 | `Payment.invoiceNo` instead of separate `Invoice` table — **planned Slice 5** | File 03 §2 |
-| `Listing.scan Json` instead of `ScanResult` table — **planned Slice 2** | File 03 §2 |
+| `Listing.scan Json` instead of `ScanResult` table — added in Slice 2 | File 03 §2 |
 | `DataExport`, `ListingMetricDaily`, `OtherEntry`, `JobRun`, `EmailOutbox`, `IdempotencyKey` tables — **planned Slice 5** | File 03 §2: computed on demand or logged |
-| `Category`, `CategoryAttribute`, `Listing`, `ListingMedia`, `ChatThread`, `ChatMessage`, `Booking`, `CandidateProfile`, `JobApplication`, `CvBuildRequest`, `BusinessProfile`, `BusinessStaff`, `Review`, `Report`, `ModerationAction`, `Blacklist`, `Notification`, `Broadcast`, `Payment`, `SupportTicket` — **planned Slices 2–5** | Not yet built |
+| `Category`, `CategoryAttribute`, `Listing`, `ListingMedia` — added in Slice 2 | Built |
+| `ChatThread`, `ChatMessage`, `Booking`, `CandidateProfile`, `JobApplication`, `CvBuildRequest`, `BusinessProfile`, `BusinessStaff`, `Review`, `Report`, `ModerationAction`, `Blacklist`, `Notification`, `Broadcast`, `Payment`, `SupportTicket` — planned Slices 3–5 | Not yet built |
+| `businessId` on `Listing` has no FK constraint — column exists, FK deferred | Slice 3 will add the BusinessProfile table |
+| HEIC images rejected with `UNSUPPORTED_IMAGE_FORMAT` | sharp does not support HEIC without native libheif; client must convert first |
+| No 150px thumbnail — only 400px (`_m`) thumb generated | File 03 §1 cut: one thumb size sufficient at launch |
+| No perceptual hash (phash/dHash) — sha256 of processed image used for exact-duplicate detection | File 03 §1 cut #9: dHash deferred |
+| No server-side video poster extraction — `videoPosterUrl` set by client via `posterMediaId` | File 03 §1 cut #10: client compresses and extracts poster |
+| Geo autocomplete deferred — `/geo/autocomplete` not implemented | Slice 3+; trigram search sufficient at launch |
 
 ## API / Features
 

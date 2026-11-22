@@ -19,7 +19,7 @@ function buildFieldSchema(
     case 'TEXT': {
       let s = z.string();
       if (rules?.minLength) s = s.min(rules.minLength);
-      if (rules?.maxLength) s = s.max(rules.maxLength);
+      s = s.max(rules?.maxLength ?? 500);
       schema = s;
       break;
     }

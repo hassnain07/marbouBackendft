@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import { ZodError } from 'zod';
 import { Prisma } from '@prisma/client';
+import multer from 'multer';
 import { getMessage } from './messages';
 
 export class AppError extends Error {
@@ -50,6 +51,15 @@ export function errorMiddleware(
         details: err.flatten().fieldErrors,
         traceId,
       },
+    });
+    return;
+  }
+
+  if (err instanceof multer.MulterError) {
+    const code = err.code === 'LIMIT_FILE_SIZE' ? 'FILE_TOO_LARGE' : 'BAD_REQUEST';
+    const status = err.code === 'LIMIT_FILE_SIZE' ? 422 : 400;
+    res.status(status).json({
+      error: { code, message: getMessage(code, lang) ?? err.message, traceId },
     });
     return;
   }

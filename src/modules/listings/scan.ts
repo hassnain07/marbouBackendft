@@ -40,13 +40,17 @@ const JOB_SCAM_PHRASES = [
 
 interface ScanSignal { signal: string; weight: number }
 
+type ListingWithMedia = NonNullable<Awaited<ReturnType<typeof db.listing.findUnique>>> & {
+  media: { hash: string | null }[];
+};
+
 export async function scanListing(listingId: string): Promise<void> {
-  let listing: Awaited<ReturnType<typeof db.listing.findUnique>> & { media?: { hash: string | null }[] } | null = null;
+  let listing: ListingWithMedia | null = null;
   try {
     listing = await db.listing.findUnique({
       where: { id: listingId },
       include: { media: { select: { hash: true } } },
-    }) as never;
+    }) as ListingWithMedia | null;
   } catch (err) {
     console.error('[scan] fetch error for', listingId, err);
     return;
@@ -90,7 +94,7 @@ export async function scanListing(listingId: string): Promise<void> {
   } catch { /* pg_trgm may not be installed */ }
 
   // Image sha256 duplicate (different owner)
-  const mediaList = (listing as never as { media: { hash: string | null }[] }).media ?? [];
+  const mediaList = listing.media ?? [];
   const hashes = mediaList.map((m) => m.hash).filter(Boolean) as string[];
   if (hashes.length > 0) {
     try {

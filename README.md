@@ -105,12 +105,10 @@ This is used by Postman pre-request scripts to automate OTP flows.
 ## Postman / Newman
 
 ```bash
-# Generate collection from scripts/gen_postman.py
-python scripts/gen_postman.py
-# or
+# Generate collection (TypeScript — no Python needed)
 npm run postman
 
-# Run with Newman (requires server running + seeded admin)
+# Run with Newman — working directory must be the postman/ folder
 npx newman run postman/marbou.postman_collection.json \
   -e postman/local.postman_environment.json \
   --delay-request 50 \
@@ -119,11 +117,11 @@ npx newman run postman/marbou.postman_collection.json \
 # Run a single folder
 npx newman run postman/marbou.postman_collection.json \
   -e postman/local.postman_environment.json \
-  --folder "01 Auth"
+  --folder "04 Catalog"
 ```
 
-**Folder run order matters** — each folder depends on tokens set by the previous one:
-`00 Pre-request and Config` → `01 Auth` → `02 Profile` → `03 Admin`
+**Folder run order matters** — each folder depends on tokens/IDs set by the previous one:
+`00 Pre-request and Config` → `01 Auth` → `02 Profile` → `03 Admin` → `04 Catalog` → `05 Media` → `06 Listings`
 
 ---
 
@@ -180,6 +178,36 @@ gunzip -c backup_YYYYMMDD.sql.gz | psql $DATABASE_URL
 4. **CDN:** put Cloudflare R2 or AWS S3 in front of media (Slice 2+, `STORAGE_DRIVER=s3`).
 
 ---
+
+## Media Upload
+
+| Endpoint | Auth | Notes |
+|---|---|---|
+| `POST /api/v1/media/images?purpose=listing\|avatar\|cover` | verified | Converts to WebP ≤1920px, strips EXIF/GPS, creates 400px thumb, stores sha256 |
+| `POST /api/v1/media/video?categoryId=` | verified | Checks `flags.video.enabled`, category allow-list, max MB/seconds |
+| `POST /api/v1/media/documents` | verified | PDF/JPEG only, stored privately, accessible via signed URL |
+| `GET /api/v1/media/signed-url?mediaId=` | user | 5-minute signed link for private docs |
+| `DELETE /api/v1/media/:id` | user | Owner only; 409 if attached to a listing |
+
+## Listings
+
+| Endpoint | Notes |
+|---|---|
+| `POST /api/v1/listings` | `status: PUBLISH` or `DRAFT`; runs cap + rate-limit check inside transaction |
+| `GET /api/v1/listings/:id` | UUID or `MARBOU-XXXXX`; approx listings never expose exact lat/lng |
+| `PATCH /api/v1/listings/:id` | Strict schema — unknown keys → 400 |
+| `POST /api/v1/listings/:id/publish` | Draft → Active; re-checks category restriction + delayed visibility |
+| `POST /api/v1/listings/:id/renew` | EXPIRED within window, or ACTIVE expiring ≤7 days |
+| `POST /api/v1/listings/:id/sold` | ACTIVE only |
+| `POST /api/v1/listings/:id/archive` | ACTIVE, EXPIRED, SOLD, HIDDEN, DRAFT |
+| `POST /api/v1/listings/:id/duplicate` | Creates DRAFT copy |
+| `DELETE /api/v1/listings/:id` | Soft delete |
+| `POST /api/v1/listings/bulk` | DEALER cap required; per-id results |
+| `POST /api/v1/listings/:id/contact-reveal` | Returns phone or wa.me link; guest rate-limited |
+| `POST /api/v1/listings/:id/lead` | Guest-accessible |
+| `POST /api/v1/listings/quality-preview` | Scores without saving |
+| `GET /api/v1/me/listings?status=&cursor=&limit=` | Paginated `{data, nextCursor}` |
+| `GET /api/v1/me/drafts?cursor=&limit=` | Same shape |
 
 ## Known Limits (Slice 1)
 

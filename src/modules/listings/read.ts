@@ -1,6 +1,7 @@
 import { createHash } from 'crypto';
 import { db } from '../../shared/db';
 import { E } from '../../shared/errors';
+import { paginate, decodeCursor } from '../../shared/pagination';
 
 const READABLE_RE = /^MARBOU-(\d+)$/;
 
@@ -130,15 +131,19 @@ export async function getListing(
   return base;
 }
 
-export async function getMyListings(ownerId: string, status?: string) {
+export async function getMyListings(ownerId: string, status?: string, cursor?: string, limit = 20) {
+  const offset = cursor ? decodeCursor(cursor).o : 0;
+  const take = limit + 1; // fetch one extra to detect next page
   const where: Record<string, unknown> = { ownerId, deletedAt: null };
   if (status) where.status = status;
   const listings = await db.listing.findMany({
     where: where as never,
     orderBy: { createdAt: 'desc' },
     include: { media: { where: { isCover: true }, take: 1 } },
+    skip: offset,
+    take,
   });
-  return listings.map((l) => ({
+  const items = listings.map((l) => ({
     id: l.id,
     readableId: `MARBOU-${String(l.publicSeq).padStart(5, '0')}`,
     title: l.title,
@@ -150,4 +155,5 @@ export async function getMyListings(ownerId: string, status?: string) {
     expiresAt: l.expiresAt,
     viewCount: l.viewCount,
   }));
+  return paginate(items, limit, offset);
 }

@@ -117,7 +117,7 @@ export async function uploadVideo(
     data: {
       id,
       ownerId,
-      kind: 'video',
+      kind: 'VIDEO',
       isPrivate: false,
       key,
       url: absUrl(url),

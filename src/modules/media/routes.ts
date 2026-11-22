@@ -3,6 +3,7 @@ import multer from 'multer';
 import fs from 'fs';
 import { z } from 'zod';
 import { defineRoute } from '../../shared/route';
+import { registry } from '../../shared/route';
 import { requireAuth, optionalAuth } from '../../shared/auth';
 import { limiters } from '../../shared/rateLimit';
 import { E } from '../../shared/errors';
@@ -16,6 +17,28 @@ const diskUpload = multer({ storage: multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, require('os').tmpdir()),
   filename: (_req, _file, cb) => cb(null, `mv_${Date.now()}_${Math.random().toString(36).slice(2)}`),
 }), limits: { fileSize: 50 * 1024 * 1024 } });
+
+// Register multipart routes in OpenAPI
+registry.registerPath({
+  method: 'post', path: '/api/v1/media/images',
+  summary: 'Upload an image', tags: ['Media'],
+  security: [{ bearerAuth: [] }],
+  request: { query: z.object({ purpose: z.enum(['listing', 'avatar', 'cover']).optional() }) as never },
+  responses: { 200: { description: 'Uploaded image asset' } },
+});
+registry.registerPath({
+  method: 'post', path: '/api/v1/media/video',
+  summary: 'Upload a video', tags: ['Media'],
+  security: [{ bearerAuth: [] }],
+  request: { query: z.object({ categoryId: z.string().uuid().optional() }) as never },
+  responses: { 200: { description: 'Uploaded video asset' } },
+});
+registry.registerPath({
+  method: 'post', path: '/api/v1/media/documents',
+  summary: 'Upload a private document', tags: ['Media'],
+  security: [{ bearerAuth: [] }],
+  responses: { 200: { description: 'Uploaded document asset' } },
+});
 
 // ─── POST /media/images ───────────────────────────────────────────────────────
 
