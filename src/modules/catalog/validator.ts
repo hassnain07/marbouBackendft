@@ -63,11 +63,12 @@ function buildFieldSchema(
   return isRequired ? schema : schema.optional();
 }
 
-export async function buildValidator(categoryId: string, partial = false): Promise<z.ZodTypeAny> {
+export async function buildValidator(categoryId: string, partial = false, storedAttrs?: Record<string, unknown>): Promise<z.ZodTypeAny> {
   const cat = await db.category.findUnique({ where: { id: categoryId }, select: { schemaVersion: true } });
   const version = cat?.schemaVersion ?? 0;
   const cacheKey = `${categoryId}:${version}:${partial ? 'p' : 'f'}`;
-  if (validatorCache.has(cacheKey)) return validatorCache.get(cacheKey)!;
+  // Don't cache when storedAttrs are provided (edit mode with per-listing stored values)
+  if (!storedAttrs && validatorCache.has(cacheKey)) return validatorCache.get(cacheKey)!;
 
   // Collect all active (non-archived) attributes for this category and ancestors
   const chain: string[] = [];
@@ -117,6 +118,16 @@ export async function buildValidator(categoryId: string, partial = false): Promi
     }
   }
 
+  // In edit mode: keys already stored (including archived ones) are accepted only with their stored value
+  if (partial && storedAttrs) {
+    for (const [key, storedVal] of Object.entries(storedAttrs)) {
+      if (!shape[key]) {
+        // Archived or unknown key — only accept if value matches stored
+        shape[key] = z.literal(storedVal as never).optional();
+      }
+    }
+  }
+
   // Unknown keys rejected
   let schema: z.ZodTypeAny = z.object(shape).strict();
 
@@ -139,7 +150,8 @@ export async function buildValidator(categoryId: string, partial = false): Promi
     });
   }
 
-  validatorCache.set(cacheKey, schema);
+  // Only cache when no storedAttrs (edit-mode schemas are per-listing)
+  if (!storedAttrs) validatorCache.set(cacheKey, schema);
   return schema;
 }
 

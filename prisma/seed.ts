@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import dotenv from 'dotenv';
+import { SUDAN_STATES, CITIES_BY_STATE, NEIGHBORHOODS_BY_CITY, CATEGORY_SPEC } from './seed-data';
 dotenv.config();
 
 const db = new PrismaClient();
@@ -38,10 +39,12 @@ const DEFAULTS: Record<string, unknown> = {
   'media.video.disabledCategoryIds': [],
   'listing.expiryDaysDefault': 30,
   'listing.renewWindowDays': 30,
+  'listing.approxRadiusDefault': 500,
   'quality.weights': { titleDesc: 25, photos: 25, requiredAttrs: 20, optionalAttrs: 10, location: 10, video: 5, price: 5 },
   'dup.textSimilarity': 0.85,
   'moderation.autoHide': { reports: 5, windowHours: 24, fraudScore: 85 },
   'moderation.delayedVisibility': [],
+  'moderation.bannedKeywords': [],
   'fraud.alert': 70,
   'fraud.rateLimit': 80,
   'insight.minComparables': 8,
@@ -61,50 +64,10 @@ const DEFAULTS: Record<string, unknown> = {
   'maps.perIpPerDay': 100,
   'contact.support': { email: 'support@marbou.sd', phone: '', whatsapp: '' },
   'currencies.enabled': ['SDG', 'USD'],
+  'countries': [{ code: 'SD', nameAr: 'السودان', nameEn: 'Sudan' }],
   'whatsapp.template.ar': 'مرحباً، مهتم بـ {title} ({listingId}) بسعر {price}',
   'whatsapp.template.en': 'Hi, interested in {title} ({listingId}) at {price}',
 };
-
-const BASE_TRANSLATIONS: Array<{ key: string; ar: string; en: string }> = [
-  { key: 'app.name', ar: 'مربو', en: 'MARBOU' },
-  { key: 'app.tagline', ar: 'سوق السودان الأول', en: "Sudan's #1 Marketplace" },
-  { key: 'auth.register.title', ar: 'إنشاء حساب', en: 'Create Account' },
-  { key: 'auth.login.title', ar: 'تسجيل الدخول', en: 'Sign In' },
-  { key: 'auth.otp.title', ar: 'التحقق من البريد الإلكتروني', en: 'Email Verification' },
-  { key: 'auth.otp.subtitle', ar: 'أدخل الرمز المرسل إلى بريدك', en: 'Enter the code sent to your email' },
-  { key: 'auth.forgot.title', ar: 'نسيت كلمة المرور', en: 'Forgot Password' },
-  { key: 'auth.reset.title', ar: 'إعادة تعيين كلمة المرور', en: 'Reset Password' },
-  { key: 'profile.title', ar: 'الملف الشخصي', en: 'Profile' },
-  { key: 'profile.edit', ar: 'تعديل الملف', en: 'Edit Profile' },
-  { key: 'profile.verified', ar: 'موثق', en: 'Verified' },
-  { key: 'listing.create', ar: 'إضافة إعلان', en: 'Post Ad' },
-  { key: 'listing.edit', ar: 'تعديل الإعلان', en: 'Edit Ad' },
-  { key: 'listing.sold', ar: 'تم البيع', en: 'Sold' },
-  { key: 'listing.expired', ar: 'منتهي الصلاحية', en: 'Expired' },
-  { key: 'search.placeholder', ar: 'ابحث عن أي شيء...', en: 'Search for anything...' },
-  { key: 'search.noResults', ar: 'لا توجد نتائج', en: 'No results found' },
-  { key: 'error.generic', ar: 'حدث خطأ، يرجى المحاولة مرة أخرى', en: 'Something went wrong, please try again' },
-  { key: 'error.network', ar: 'خطأ في الاتصال بالإنترنت', en: 'Network error' },
-  { key: 'error.unauthorized', ar: 'يرجى تسجيل الدخول أولاً', en: 'Please sign in first' },
-  { key: 'error.forbidden', ar: 'ليس لديك صلاحية', en: 'Access denied' },
-  { key: 'error.notFound', ar: 'الصفحة غير موجودة', en: 'Page not found' },
-  { key: 'button.save', ar: 'حفظ', en: 'Save' },
-  { key: 'button.cancel', ar: 'إلغاء', en: 'Cancel' },
-  { key: 'button.confirm', ar: 'تأكيد', en: 'Confirm' },
-  { key: 'button.delete', ar: 'حذف', en: 'Delete' },
-  { key: 'button.back', ar: 'رجوع', en: 'Back' },
-  { key: 'button.next', ar: 'التالي', en: 'Next' },
-  { key: 'button.submit', ar: 'إرسال', en: 'Submit' },
-  { key: 'currency.SDG', ar: 'جنيه سوداني', en: 'Sudanese Pound' },
-  { key: 'currency.USD', ar: 'دولار أمريكي', en: 'US Dollar' },
-  { key: 'status.active', ar: 'نشط', en: 'Active' },
-  { key: 'status.pending', ar: 'قيد المراجعة', en: 'Pending Review' },
-  { key: 'status.suspended', ar: 'موقوف', en: 'Suspended' },
-  { key: 'notif.otp_requested', ar: 'تم إرسال رمز التحقق', en: 'Verification code sent' },
-  { key: 'notif.otp_verified', ar: 'تم التحقق بنجاح', en: 'Verification successful' },
-  { key: 'notif.listing_expired', ar: 'انتهت صلاحية إعلانك', en: 'Your listing has expired' },
-  { key: 'notif.new_message', ar: 'رسالة جديدة', en: 'New message' },
-];
 
 async function seedSettings() {
   console.log('Seeding settings...');
@@ -118,31 +81,16 @@ async function seedSettings() {
   console.log(`  ✓ ${Object.keys(DEFAULTS).length} settings`);
 }
 
-async function seedTranslations() {
-  console.log('Seeding translations...');
-  for (const t of BASE_TRANSLATIONS) {
-    await db.translation.upsert({
-      where: { key_lang: { key: t.key, lang: 'ar' } },
-      create: { key: t.key, lang: 'ar', value: t.ar },
-      update: { value: t.ar },
-    });
-    await db.translation.upsert({
-      where: { key_lang: { key: t.key, lang: 'en' } },
-      create: { key: t.key, lang: 'en', value: t.en },
-      update: { value: t.en },
-    });
-  }
-  console.log(`  ✓ ${BASE_TRANSLATIONS.length * 2} translation entries`);
-}
-
 async function seedExchangeRate() {
   console.log('Seeding exchange rates...');
   const existing = await db.exchangeRate.findFirst({ where: { base: 'USD', quote: 'SDG' } });
   if (!existing) {
     await db.exchangeRate.create({ data: { base: 'USD', quote: 'SDG', rate: 600, setBy: 'seed' } });
     await db.exchangeRate.create({ data: { base: 'SDG', quote: 'USD', rate: 0.001667, setBy: 'seed' } });
+    console.log('  ✓ USD/SDG exchange rate');
+  } else {
+    console.log('  ✓ exchange rate already exists');
   }
-  console.log('  ✓ USD/SDG exchange rate');
 }
 
 async function seedAdmins() {
@@ -159,32 +107,111 @@ async function seedAdmins() {
       : {},
   });
   console.log(`  ✓ Super Admin: ${adminEmail}`);
+}
 
-  if (process.env.SEED_DEMO_ADMINS === 'true') {
-    const demoAdmins = [
-      { email: 'moderator@marbou.test', fullName: 'Content Moderator', role: 'CONTENT_MODERATOR' as const },
-      { email: 'support@marbou.test', fullName: 'Support Agent', role: 'SUPPORT_AGENT' as const },
-      { email: 'finance@marbou.test', fullName: 'Financial Auditor', role: 'FINANCIAL_AUDITOR' as const },
-    ];
-    for (const a of demoAdmins) {
-      await db.adminUser.upsert({
-        where: { email: a.email },
-        create: { email: a.email, passwordHash, fullName: a.fullName, role: a.role },
-        update: process.env.NODE_ENV !== 'production'
-          ? { passwordHash, isActive: true, mustChangePassword: false }
-          : {},
+async function seedPlaces() {
+  console.log('Seeding Sudan places...');
+  let stateCount = 0, cityCount = 0, hoodCount = 0;
+
+  for (const state of SUDAN_STATES) {
+    const existing = await db.place.findFirst({ where: { level: 'STATE', nameEn: state.nameEn } });
+    const stateRow = existing ?? await db.place.create({
+      data: { level: 'STATE', nameAr: state.nameAr, nameEn: state.nameEn, countryCode: 'SD' },
+    });
+    if (!existing) stateCount++;
+
+    const cities = CITIES_BY_STATE[state.nameEn] ?? [];
+    for (const city of cities) {
+      const existingCity = await db.place.findFirst({ where: { level: 'CITY', nameEn: city.nameEn, parentId: stateRow.id } });
+      const cityRow = existingCity ?? await db.place.create({
+        data: { level: 'CITY', nameAr: city.nameAr, nameEn: city.nameEn, parentId: stateRow.id, countryCode: 'SD' },
       });
-      console.log(`  ✓ ${a.role}: ${a.email}`);
+      if (!existingCity) cityCount++;
+
+      const hoods = NEIGHBORHOODS_BY_CITY[city.nameEn] ?? [];
+      for (const hood of hoods) {
+        const existingHood = await db.place.findFirst({ where: { level: 'NEIGHBORHOOD', nameEn: hood.nameEn, parentId: cityRow.id } });
+        if (!existingHood) {
+          await db.place.create({
+            data: { level: 'NEIGHBORHOOD', nameAr: hood.nameAr, nameEn: hood.nameEn, parentId: cityRow.id, countryCode: 'SD' },
+          });
+          hoodCount++;
+        }
+      }
     }
   }
+  console.log(`  ✓ ${stateCount} states, ${cityCount} cities, ${hoodCount} neighborhoods (new)`);
+}
+
+async function seedCategories() {
+  console.log('Seeding categories...');
+  let catCount = 0, attrCount = 0;
+
+  async function upsertCategory(spec: typeof CATEGORY_SPEC[0], parentId?: string): Promise<string> {
+    const existing = await db.category.findUnique({ where: { slug: spec.slug } });
+    let cat;
+    if (existing) {
+      cat = existing;
+    } else {
+      cat = await db.category.create({
+        data: {
+          slug: spec.slug,
+          nameAr: spec.nameAr,
+          nameEn: spec.nameEn,
+          displayOrder: spec.displayOrder,
+          parentId: parentId ?? null,
+          isActive: true,
+        },
+      });
+      catCount++;
+    }
+
+    // Upsert attributes
+    for (const attr of spec.attrs ?? []) {
+      const existingAttr = await db.categoryAttribute.findUnique({
+        where: { categoryId_attributeKey: { categoryId: cat.id, attributeKey: attr.key } },
+      });
+      if (!existingAttr) {
+        await db.categoryAttribute.create({
+          data: {
+            categoryId: cat.id,
+            attributeKey: attr.key,
+            labelAr: attr.labelAr,
+            labelEn: attr.labelEn,
+            dataType: attr.type as never,
+            isRequired: attr.required ?? false,
+            isFilterable: attr.filterable ?? false,
+            isSearchable: attr.searchable ?? false,
+            optionsList: attr.options ? (attr.options as never) : undefined,
+            validationRules: attr.rules ? (attr.rules as never) : undefined,
+            displayOrder: attr.displayOrder ?? 0,
+          },
+        });
+        attrCount++;
+      }
+    }
+
+    // Recurse children
+    for (const child of spec.children ?? []) {
+      await upsertCategory(child, cat.id);
+    }
+
+    return cat.id;
+  }
+
+  for (const spec of CATEGORY_SPEC) {
+    await upsertCategory(spec);
+  }
+  console.log(`  ✓ ${catCount} categories, ${attrCount} attributes (new)`);
 }
 
 async function main() {
   console.log('🌱 Starting seed...');
   await seedSettings();
-  await seedTranslations();
   await seedExchangeRate();
   await seedAdmins();
+  await seedPlaces();
+  await seedCategories();
   console.log('✅ Seed complete');
 }
 

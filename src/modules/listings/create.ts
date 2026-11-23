@@ -8,14 +8,13 @@ import { buildValidator } from '../catalog/validator';
 import { computeQuality } from './quality';
 import type { ListingType, ListingStatus } from '@prisma/client';
 
-// ─── Sudan bbox (soft) ────────────────────────────────────────────────────────
+// ─── Sudan bbox (soft warning only — listings are still accepted) ─────────────
 const SUDAN_LAT = [8.5, 23.5] as const;
 const SUDAN_LNG = [21.8, 38.7] as const;
 
 // ─── Shared text cleaner ──────────────────────────────────────────────────────
 export function cleanText(s: string): string {
   const stripped = sanitizeHtml(s, { allowedTags: [], allowedAttributes: {} });
-  // Decode only safe entities back; leave < > encoded
   return stripped
     .replace(/&amp;/g, '&')
     .replace(/&quot;/g, '"')
@@ -24,33 +23,7 @@ export function cleanText(s: string): string {
 }
 
 // ─── Deterministic jitter seeded by listing ID ────────────────────────────────
-// Uses a simple 32-bit hash → two uniform values → uniform-in-disc sampling
-function computeJitter(listingId: string, radiusM: number, lat: number): { pubLat: number; pubLng: number } {
-  // Hash the listing ID to two 32-bit values
-  let h1 = 0x9e3779b9, h2 = 0x6c62272e;
-  for (let i = 0; i < listingId.length; i++) {
-    const c = listingId.charCodeAt(i);
-    h1 = Math.imul(h1 ^ c, 0x9e3779b9) | 0;
-    h2 = Math.imul(h2 ^ c, 0x85ebca6b) | 0;
-  }
-  const u1 = ((h1 >>> 0) / 0x100000000); // [0,1) for angle
-  const u2 = ((h2 >>> 0) / 0x100000000); // [0,1) for radius fraction
-
-  const angle = u1 * 2 * Math.PI;
-  // Uniform in disc: r = R * sqrt(u2)
-  const r = radiusM * Math.sqrt(u2);
-
-  const dLat = r / 111320;
-  const dLng = r / (111320 * Math.cos((lat * Math.PI) / 180));
-
-  return {
-    pubLat: lat + Math.cos(angle) * dLat,
-    pubLng: lat + Math.sin(angle) * dLng, // intentional: uses lat-derived scale
-  };
-}
-
-// Fix: correct lng computation
-function computeJitterFixed(listingId: string, radiusM: number, lat: number, lng: number): { pubLat: number; pubLng: number } {
+export function computeJitterFixed(listingId: string, radiusM: number, lat: number, lng: number): { pubLat: number; pubLng: number } {
   let h1 = 0x9e3779b9, h2 = 0x6c62272e;
   for (let i = 0; i < listingId.length; i++) {
     const c = listingId.charCodeAt(i);
@@ -59,14 +32,11 @@ function computeJitterFixed(listingId: string, radiusM: number, lat: number, lng
   }
   const u1 = (h1 >>> 0) / 0x100000000;
   const u2 = (h2 >>> 0) / 0x100000000;
-
   const angle = u1 * 2 * Math.PI;
   const r = radiusM * Math.sqrt(u2);
-
   const dLat = r / 111320;
   const cosLat = Math.cos((lat * Math.PI) / 180) || 1e-10;
   const dLng = r / (111320 * cosLat);
-
   return {
     pubLat: lat + Math.cos(angle) * dLat,
     pubLng: lng + Math.sin(angle) * dLng,
@@ -83,7 +53,6 @@ export function buildSearchText(
   catNameAr: string,
   catNameEn: string,
 ): string {
-  // Expand option codes to labels
   const attrParts: string[] = [];
   for (const [key, val] of Object.entries(attrs)) {
     const def = attrDefs.find((a) => a.attributeKey === key);
@@ -103,8 +72,6 @@ export function buildSearchText(
 }
 
 // ─── assertCanPublish ─────────────────────────────────────────────────────────
-// Must be called INSIDE a transaction. Acquires per-user advisory lock,
-// checks active cap and hourly/daily rate limits.
 type TxClient = Parameters<Parameters<typeof db.$transaction>[0]>[0];
 
 export async function assertCanPublish(
@@ -240,6 +207,14 @@ export async function createListing(ownerId: string, input: CreateListingInput) 
     pubLng = j.pubLng;
   }
 
+  // 7b. Sudan bbox soft warning
+  const warnings: string[] = [];
+  if (lat !== null && lng !== null) {
+    if (lat < SUDAN_LAT[0] || lat > SUDAN_LAT[1] || lng < SUDAN_LNG[0] || lng > SUDAN_LNG[1]) {
+      warnings.push('OUT_OF_SUDAN');
+    }
+  }
+
   // 8. searchText
   const allAttrs = await db.categoryAttribute.findMany({ where: { categoryId: input.categoryId, isArchived: false } });
   const searchText = buildSearchText(title, description, customOtherText, attrs, allAttrs, cat.nameAr, cat.nameEn);
@@ -259,13 +234,12 @@ export async function createListing(ownerId: string, input: CreateListingInput) 
     optionalKeys,
   }, weights as Parameters<typeof computeQuality>[1]);
 
-  // 10. Status (delayed visibility applied inside transaction after cap check)
+  // 10. Status
   const expiryDays = cat.expiryDays ?? await settings.get<number>('listing.expiryDaysDefault', 30);
   const expiresAt = shouldPublish ? new Date(Date.now() + expiryDays * 86400000) : null;
 
   // 11. Create listing + cap check + media in ONE transaction
   const listing = await db.$transaction(async (tx) => {
-    // Cap/rate check inside the same transaction as the insert
     let status: ListingStatus = shouldPublish ? 'ACTIVE' : 'DRAFT';
     if (shouldPublish) {
       await assertCanPublish(tx, user, input.categoryId);
@@ -308,7 +282,7 @@ export async function createListing(ownerId: string, input: CreateListingInput) 
       },
     });
 
-    // Media rows
+    // Image media rows
     const mediaIds = input.mediaIds ?? [];
     const coverMediaId = input.coverMediaId;
     const maxPhotos = await settings.get<number>('media.maxPhotos', 10);
@@ -320,7 +294,8 @@ export async function createListing(ownerId: string, input: CreateListingInput) 
       seen.add(mid);
       const asset = await tx.mediaAsset.findUnique({ where: { id: mid } });
       if (!asset || asset.ownerId !== ownerId) throw E.badRequest('MEDIA_NOT_OWNED');
-      if (asset.kind !== 'IMAGE' || asset.isPrivate) throw E.badRequest('MEDIA_NOT_OWNED');
+      if (asset.kind !== 'IMAGE') throw E.badRequest('MEDIA_KIND_INVALID');
+      if (asset.isPrivate) throw E.badRequest('MEDIA_KIND_INVALID');
       const isCover = coverMediaId ? mid === coverMediaId : i === 0;
       await tx.listingMedia.create({
         data: {
@@ -334,6 +309,16 @@ export async function createListing(ownerId: string, input: CreateListingInput) 
         },
       });
       await tx.mediaAsset.update({ where: { id: mid }, data: { attachedAt: new Date() } });
+    }
+
+    // videoMediaId: must be caller's own unattached VIDEO asset
+    if (input.videoMediaId) {
+      const vid = await tx.mediaAsset.findUnique({ where: { id: input.videoMediaId } });
+      if (!vid || vid.ownerId !== ownerId) throw E.badRequest('MEDIA_NOT_OWNED');
+      if (vid.kind !== 'VIDEO') throw E.badRequest('MEDIA_KIND_INVALID');
+      if (vid.attachedAt) throw E.badRequest('MEDIA_ALREADY_ATTACHED');
+      await tx.mediaAsset.update({ where: { id: input.videoMediaId }, data: { attachedAt: new Date() } });
+      await tx.listing.update({ where: { id: l.id }, data: { videoUrl: vid.url } });
     }
 
     return l;
@@ -352,5 +337,6 @@ export async function createListing(ownerId: string, input: CreateListingInput) 
     readableId: `MARBOU-${String(listing.publicSeq).padStart(5, '0')}`,
     status: listing.status,
     shareUrl: webUrl,
+    ...(warnings.length > 0 ? { warnings } : {}),
   };
 }

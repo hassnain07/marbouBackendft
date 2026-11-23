@@ -1,18 +1,16 @@
 import { createHash } from 'crypto';
-import sanitizeHtml from 'sanitize-html';
 import { Decimal } from '@prisma/client/runtime/library';
 import { db } from '../../shared/db';
 import { E } from '../../shared/errors';
 import { settings } from '../../shared/settings';
 import { buildValidator } from '../catalog/validator';
 import { computeQuality } from './quality';
-import { assertCanPublish, resolveStatus, cleanText, buildSearchText } from './create';
+import { assertCanPublish, resolveStatus, cleanText, buildSearchText, computeJitterFixed } from './create';
 import type { ListingStatus } from '@prisma/client';
 
 // ─── PATCH listing ────────────────────────────────────────────────────────────
 
 const LOCKED_STATUSES = ['SUSPENDED'] as const;
-const PATCH_ALLOWED_STATUSES = ['ACTIVE', 'DRAFT', 'EXPIRED', 'SOLD', 'ARCHIVED', 'HIDDEN', 'AUTO_HIDDEN', 'PENDING_REVIEW'];
 
 export async function patchListing(
   requesterId: string,
@@ -36,16 +34,80 @@ export async function patchListing(
   if (input.condition !== undefined) { data.condition = input.condition; changedFields.push('condition'); }
   if (input.locationName !== undefined) { data.locationName = input.locationName; changedFields.push('locationName'); }
   if (input.contactOptions !== undefined) { data.contactOptions = input.contactOptions as never; changedFields.push('contactOptions'); }
+  if (input.isCustomOther !== undefined) { data.isCustomOther = input.isCustomOther; changedFields.push('isCustomOther'); }
+  if (input.customOtherText !== undefined) { data.customOtherText = cleanText(input.customOtherText as string); changedFields.push('customOtherText'); }
+
+  // Location fields — recompute pubLat/pubLng only when lat, lng, isApproxLocation or approxRadiusM changes
+  const locationKeys = ['lat', 'lng', 'isApproxLocation', 'approxRadiusM', 'cityId', 'neighborhoodId'] as const;
+  const locationChanged = locationKeys.some((k) => input[k] !== undefined);
+  if (locationChanged) {
+    const newLat = input.lat !== undefined ? (input.lat as number) : (listing.lat ?? undefined);
+    const newLng = input.lng !== undefined ? (input.lng as number) : (listing.lng ?? undefined);
+    const newIsApprox = input.isApproxLocation !== undefined ? (input.isApproxLocation as boolean) : listing.isApproxLocation;
+    const newRadiusM = input.approxRadiusM !== undefined ? (input.approxRadiusM as number) : (listing.approxRadiusM ?? undefined);
+
+    if (input.lat !== undefined) { data.lat = newLat ?? null; changedFields.push('lat'); }
+    if (input.lng !== undefined) { data.lng = newLng ?? null; changedFields.push('lng'); }
+    if (input.isApproxLocation !== undefined) { data.isApproxLocation = newIsApprox; changedFields.push('isApproxLocation'); }
+    if (input.approxRadiusM !== undefined) { data.approxRadiusM = newRadiusM ?? null; changedFields.push('approxRadiusM'); }
+
+    // Validate cityId/neighborhoodId existence and parentage
+    if (input.cityId !== undefined) {
+      const city = await db.place.findUnique({ where: { id: input.cityId as string } });
+      if (!city) throw E.badRequest('PLACE_NOT_FOUND');
+      data.cityId = input.cityId;
+      changedFields.push('cityId');
+    }
+    if (input.neighborhoodId !== undefined) {
+      const hood = await db.place.findUnique({ where: { id: input.neighborhoodId as string } });
+      if (!hood) throw E.badRequest('PLACE_NOT_FOUND');
+      const cityId = (input.cityId as string | undefined) ?? listing.cityId;
+      if (hood.parentId !== cityId) throw E.badRequest('NEIGHBORHOOD_CITY_MISMATCH');
+      data.neighborhoodId = input.neighborhoodId;
+      changedFields.push('neighborhoodId');
+    }
+
+    // Recompute pubLat/pubLng
+    const coordChanged = input.lat !== undefined || input.lng !== undefined || input.isApproxLocation !== undefined || input.approxRadiusM !== undefined;
+    if (coordChanged && newLat !== undefined && newLng !== undefined) {
+      if (newIsApprox) {
+        const defaultRadius = await settings.get<number>('listing.approxRadiusDefault', 500);
+        const rawRadius = newRadiusM ?? defaultRadius;
+        const radiusM = Math.min(2000, Math.max(100, rawRadius));
+        const j = computeJitterFixed(listingId, radiusM, newLat, newLng);
+        data.pubLat = j.pubLat;
+        data.pubLng = j.pubLng;
+      } else {
+        data.pubLat = newLat;
+        data.pubLng = newLng;
+      }
+    }
+  }
+
   if (input.dynamicAttributes !== undefined) {
-    const validator = await buildValidator(listing.categoryId, true);
+    // Edit mode: pass existing stored attributes so archived keys are accepted at stored value
+    const storedAttrs = listing.dynamicAttributes as Record<string, unknown>;
+    const validator = await buildValidator(listing.categoryId, true, storedAttrs);
     const parsed = validator.safeParse(input.dynamicAttributes);
     if (!parsed.success) throw E.badRequest('VALIDATION_ERROR', parsed.error.flatten().fieldErrors);
+
+    // Must not remove a currently required, active attribute
+    const activeRequired = await db.categoryAttribute.findMany({
+      where: { categoryId: listing.categoryId, isRequired: true, isArchived: false },
+    });
+    const incoming = input.dynamicAttributes as Record<string, unknown>;
+    for (const attr of activeRequired) {
+      if (incoming[attr.attributeKey] === undefined && storedAttrs[attr.attributeKey] === undefined) {
+        throw E.badRequest('REQUIRED_ATTR_MISSING', { key: attr.attributeKey });
+      }
+    }
+
     data.dynamicAttributes = input.dynamicAttributes as never;
     changedFields.push('dynamicAttributes');
   }
 
   // Rebuild searchText if text fields changed
-  if (data.title || data.description || data.dynamicAttributes) {
+  if (data.title !== undefined || data.description !== undefined || data.dynamicAttributes !== undefined) {
     const title = (data.title as string | undefined) ?? listing.title;
     const description = (data.description as string | undefined) ?? listing.description;
     const attrs = (data.dynamicAttributes ?? listing.dynamicAttributes) as Record<string, unknown>;
@@ -59,12 +121,7 @@ export async function patchListing(
     await db.analyticsEvent.create({
       data: { type: 'listing_edited', listingId, userId: requesterId, props: { fields: changedFields } as never },
     });
-    // AUTO_HIDDEN and PENDING_REVIEW: re-scan after edit
-    if (['AUTO_HIDDEN', 'PENDING_REVIEW'].includes(listing.status)) {
-      setImmediate(() => { import('./scan').then((m) => m.scanListing(listingId)).catch(() => {}); });
-    } else {
-      setImmediate(() => { import('./scan').then((m) => m.scanListing(listingId)).catch(() => {}); });
-    }
+    setImmediate(() => { import('./scan').then((m) => m.scanListing(listingId)).catch(() => {}); });
   }
 
   return { id: updated.id, status: updated.status };
@@ -122,10 +179,7 @@ export async function renewListing(requesterId: string, listingId: string) {
   const expiryDays = cat?.expiryDays ?? await settings.get<number>('listing.expiryDaysDefault', 30);
   const expiresAt = new Date(Date.now() + expiryDays * 86400000);
 
-  const user = await db.user.findUniqueOrThrow({ where: { id: requesterId } });
-
   const updated = await db.$transaction(async (tx) => {
-    // For EXPIRED listings, check cap only (not rate limits — renew is not a new publish)
     if (isExpired) {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${requesterId}))`;
       const activeCount = await tx.listing.count({
@@ -140,7 +194,6 @@ export async function renewListing(requesterId: string, listingId: string) {
     });
   });
 
-  void user; // suppress unused warning
   return { id: updated.id, status: updated.status, expiresAt: updated.expiresAt };
 }
 
@@ -150,7 +203,6 @@ export async function markSold(requesterId: string, listingId: string) {
   const listing = await db.listing.findUnique({ where: { id: listingId } });
   if (!listing || listing.deletedAt) throw E.notFound('LISTING_NOT_FOUND');
   if (listing.ownerId !== requesterId) throw E.forbidden();
-  // Only ACTIVE listings can be marked sold
   if (listing.status !== 'ACTIVE') throw E.rule('LISTING_NOT_EDITABLE');
   const updated = await db.listing.update({
     where: { id: listingId },
@@ -240,7 +292,6 @@ export async function bulkAction(
   const user = await db.user.findUniqueOrThrow({ where: { id: requesterId } });
   if (!user.capabilities.includes('DEALER')) throw E.forbidden('CAPABILITY_REQUIRED');
 
-  // Load all owned rows in one query; unknown/unowned ids get NOT_FOUND
   const owned = await db.listing.findMany({
     where: { id: { in: ids }, ownerId: requesterId, deletedAt: null },
     select: { id: true },
@@ -256,13 +307,11 @@ export async function bulkAction(
     try {
       if (action === 'RENEW') await renewListing(requesterId, id);
       else if (action === 'HIDE') {
-        // HIDE goes through a checked path
         const l = await db.listing.findUnique({ where: { id } });
         if (!l || l.deletedAt) throw E.notFound('LISTING_NOT_FOUND');
         if (LOCKED_STATUSES.includes(l.status as never)) throw E.rule('LISTING_LOCKED');
         await db.listing.update({ where: { id }, data: { status: 'HIDDEN' } });
-      }
-      else if (action === 'SOLD') await markSold(requesterId, id);
+      } else if (action === 'SOLD') await markSold(requesterId, id);
       else if (action === 'DELETE') await deleteListing(requesterId, id);
       results.push({ id, ok: true });
     } catch (e: unknown) {
@@ -275,7 +324,7 @@ export async function bulkAction(
 // ─── Quality preview ──────────────────────────────────────────────────────────
 
 export async function qualityPreview(
-  ownerId: string,
+  _ownerId: string,
   input: { categoryId: string; title: string; description: string; mediaCount: number; hasVideo: boolean; price?: number; lat?: number; dynamicAttributes?: Record<string, unknown> },
 ) {
   const allAttrs = await db.categoryAttribute.findMany({ where: { categoryId: input.categoryId, isArchived: false } });
@@ -293,7 +342,6 @@ export async function qualityPreview(
     requiredKeys,
     optionalKeys,
   }, weights as Parameters<typeof computeQuality>[1]);
-  void ownerId;
   return { qualityScore: score };
 }
 
@@ -314,16 +362,13 @@ export async function contactReveal(
   if (channel === 'CALL' && !contactOptions.call) throw E.forbidden('CONTACT_HIDDEN');
   if (channel === 'WHATSAPP' && !contactOptions.whatsapp) throw E.forbidden('CONTACT_HIDDEN');
 
-  // Policy check
   const policy = await settings.get<string>('flags.contactReveal.policy', 'GUESTS_RATE_LIMITED');
   if (policy === 'SIGNED_IN_ONLY' && !requesterId) throw E.unauthorized();
 
-  // Check phone BEFORE recording anything
   const owner = listing.owner;
   const phone = owner.phone ?? owner.verifiedPhone;
   if (!phone) throw E.rule('CONTACT_UNAVAILABLE');
 
-  // Guest rate limit — use advisory lock + await (no setImmediate)
   if (!requesterId) {
     const actorKey = createHash('sha256').update(deviceId ?? ip ?? 'anon').digest('hex');
     const dayAgo = new Date(Date.now() - 86400000);
@@ -343,14 +388,10 @@ export async function contactReveal(
     await db.analyticsEvent.create({ data: { type: 'contact_reveal', listingId, userId: requesterId, props: { channel } as never } });
   }
 
-  // Increment lead count
   await db.listing.update({ where: { id: listingId }, data: { leadCount: { increment: 1 } } });
 
-  if (channel === 'CALL') {
-    return { phone };
-  }
+  if (channel === 'CALL') return { phone };
 
-  // WHATSAPP
   const templateKey = `whatsapp.template.${lang}`;
   const template = await settings.get<string>(templateKey, 'Hi, interested in {title} ({listingId}) at {price}');
   const readableId = `MARBOU-${String(listing.publicSeq).padStart(5, '0')}`;
@@ -366,11 +407,20 @@ export async function contactReveal(
 
 // ─── Lead ─────────────────────────────────────────────────────────────────────
 
-export async function recordLead(listingId: string, type: string, userId?: string) {
+export async function recordLead(listingId: string, type: string, actorKey: string, userId?: string) {
   const listing = await db.listing.findUnique({ where: { id: listingId } });
   if (!listing || listing.status !== 'ACTIVE') throw E.notFound('LISTING_NOT_FOUND');
+
+  // At most one lead per (actor, listing, day)
+  const today = new Date().toISOString().slice(0, 10);
+  const dayStart = new Date(today);
+  const existing = await db.analyticsEvent.findFirst({
+    where: { type: 'lead', listingId, actorKey, createdAt: { gte: dayStart } },
+  });
+  if (existing) return { ok: true };
+
   await db.listing.update({ where: { id: listingId }, data: { leadCount: { increment: 1 } } });
-  await db.analyticsEvent.create({ data: { type: 'lead', listingId, userId: userId ?? null, props: { leadType: type } as never } });
+  await db.analyticsEvent.create({ data: { type: 'lead', listingId, userId: userId ?? null, actorKey, props: { leadType: type } as never } });
   return { ok: true };
 }
 

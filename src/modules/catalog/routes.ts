@@ -151,7 +151,7 @@ defineRoute({
     expiryDays: z.number().int().positive().optional(),
     supportsCompare: z.boolean().optional(),
     isVideoAllowed: z.boolean().optional(),
-    sort: z.number().int().optional(),
+    displayOrder: z.number().int().optional(),
   }),
   handler: async ({ body, admin }) => cats.adminCreateCategory(admin!.id, body),
 });
@@ -170,7 +170,7 @@ defineRoute({
     expiryDays: z.number().int().positive().optional(),
     supportsCompare: z.boolean().optional(),
     isVideoAllowed: z.boolean().optional(),
-    sort: z.number().int().optional(),
+    displayOrder: z.number().int().optional(),
   }),
   handler: async ({ params, body, admin }) => cats.adminUpdateCategory(admin!.id, params.id, body),
 });

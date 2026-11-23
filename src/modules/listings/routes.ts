@@ -199,7 +199,13 @@ defineRoute({
 defineRoute({
   router: listingsRouter, method: 'post', path: '/listings/:id/lead',
   summary: 'Record a lead event', tag: 'Listings', auth: 'optional',
+  limit: 'strict',
   params: z.object({ id: z.string().uuid() }),
   body: z.object({ type: z.enum(['CHAT', 'WHATSAPP', 'CALL']) }),
-  handler: async ({ params, body, user }) => write.recordLead(params.id, body.type, user?.id),
+  handler: async ({ params, body, user, req }) => {
+    const ip = req.ip ?? '';
+    const deviceId = req.headers['x-device-id'] as string | undefined;
+    const actorKey = user?.id ?? deviceId ?? ip ?? 'anon';
+    return write.recordLead(params.id, body.type, actorKey, user?.id);
+  },
 });

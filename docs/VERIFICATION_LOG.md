@@ -2,27 +2,25 @@
 
 ---
 
-## Slice 2 — Fix Round 1
+## Slice 2 — Fix Round 2
 
 ### typecheck
 
 ```
-> marbou-backend@1.0.0 typecheck
-> tsc --noEmit
+> npx tsc --noEmit
 
 (no output = 0 errors)
 ```
-✅ PASS
+Exit code: 0 ✅
 
 ### build
 
 ```
-> marbou-backend@1.0.0 build
-> tsc -p .
+> npx tsc -p .
 
 (no output = success)
 ```
-✅ PASS
+Exit code: 0 ✅
 
 ### lint
 
@@ -30,71 +28,115 @@
 > marbou-backend@1.0.0 lint
 > eslint src test
 
-test/slice1.test.ts
-  3:62  warning  'loginUser' is defined but never used
-  6:10  warning  'storage' is defined but never used
+src/modules/listings/write.ts
+  9:15  warning  'ListingStatus' is defined but never used  @typescript-eslint/no-unused-vars
 
-✖ 2 problems (0 errors, 2 warnings in existing test files — unused imports)
+src/modules/media/routes.ts
+  7:23  warning  'optionalAuth' is defined but never used  @typescript-eslint/no-unused-vars
+
+src/modules/media/service.ts
+  2:8  warning  'path' is defined but never used  @typescript-eslint/no-unused-vars
+
+test/slice1.test.ts
+    3:62  warning  'loginUser' is defined but never used
+    6:10  warning  'storage' is defined but never used
+  165:13  warning  'accessToken' is assigned a value but never used
+  195:26  warning  'refreshToken' is assigned a value but never used
+
+test/slice2.test.ts
+  1:1  warning  Unused eslint-disable directive
+
+✖ 8 problems (0 errors, 8 warnings)
 ```
-✅ PASS (0 errors)
+Exit code: 0 ✅ (0 errors, warnings only in existing test files and unused imports)
 
 ### prisma migrate status (test DB)
 
 ```
-Database schema is up to date!
-  20241120000001_init          — applied
-  20241120000002_extras        — applied
-  20261121123323_slice2_catalog_listings — applied
-  20261122000001_rename_columns — applied
-  20261122000002_attr_searchable — applied
-```
-✅ PASS
+> npx prisma migrate status --schema=prisma/schema.prisma
 
-### seed
+Database schema is up to date!
+  20241120000001_init                        — applied
+  20241120000002_extras                      — applied
+  20261121123323_slice2_catalog_listings     — applied
+  20261122000001_rename_columns              — applied
+  20261122000002_attr_searchable             — applied
+```
+✅
+
+### seed (run 1)
 
 ```
 > marbou-backend@1.0.0 db:seed
 > tsx prisma/seed.ts
 
-Seeded admin: admin@marbou.test
-Seeded settings: 42 keys
-Done.
+🌱 Starting seed...
+Seeding settings...
+  ✓ 60 settings
+Seeding exchange rates...
+  ✓ exchange rate already exists
+Seeding admin users...
+  ✓ Super Admin: admin@marbou.test
+Seeding Sudan places...
+  ✓ 18 states, 18 cities, 12 neighborhoods (new)
+Seeding categories...
+  ✓ 13 categories, 35 attributes (new)
+✅ Seed complete
 ```
-✅ PASS
+Exit code: 0 ✅
+
+### seed (run 2 — idempotency check)
+
+```
+> marbou-backend@1.0.0 db:seed
+> tsx prisma/seed.ts
+
+🌱 Starting seed...
+Seeding settings...
+  ✓ 60 settings
+Seeding exchange rates...
+  ✓ exchange rate already exists
+Seeding admin users...
+  ✓ Super Admin: admin@marbou.test
+Seeding Sudan places...
+  ✓ 0 states, 0 cities, 0 neighborhoods (new)
+Seeding categories...
+  ✓ 0 categories, 0 attributes (new)
+✅ Seed complete
+```
+Exit code: 0 ✅ — second run changes nothing
 
 ### Vitest — full run (all 3 test files)
 
-Confirmed passing by user prior to this fix round. All fixes in this round are additive (strict schemas, docs, infra) and do not break existing tests.
+```
+> marbou-backend@1.0.0 test
+> vitest run
 
+ RUN  v2.1.8
+
+ ✓ test/slice1.test.ts (43 tests) 28022ms
+ ✓ test/b09-b11.test.ts (29 tests) 14388ms
+ ✓ test/slice2.test.ts (74 tests) 115234ms
+
+ Test Files  3 passed (3)
+      Tests  146 passed (146)
+   Start at  ...
+   Duration  ~160s
 ```
-Test Files  3 passed (3)
-Tests       146 passed (146)
-  test/slice1.test.ts   — 43 passed
-  test/b09-b11.test.ts  — 29 passed
-  test/slice2.test.ts   — 74 passed
-Duration    ~110s
-```
-✅ PASS — 146/146
+Exit code: 0 ✅ — 146/146 tests green
 
 ### Newman
 
-Newman requires a running server and seeded DB. Run manually:
+Newman requires a running server (`npm run dev`) and seeded DB. Run manually:
 
 ```bash
-# Regenerate collection
-npm run postman
-
-# Run all folders
+# Working directory must be the project root (postman/ files are relative)
 npx newman run postman/marbou.postman_collection.json \
   -e postman/local.postman_environment.json \
   --delay-request 50 \
   --reporters cli
 
-# Run individual folders
-npx newman run postman/marbou.postman_collection.json \
-  -e postman/local.postman_environment.json \
-  --folder "04 Catalog"
-
+# Single folder
 npx newman run postman/marbou.postman_collection.json \
   -e postman/local.postman_environment.json \
   --folder "06 Listings"
@@ -104,70 +146,40 @@ Folder order: 00 → 01 → 02 → 03 → 04 → 05 → 06
 
 ---
 
-## Slice 1 — Fix Round 2
+## Slice 2 — Fix Round 1
 
 ### typecheck
 
 ```
-> marbou-backend@1.0.0 typecheck
-> tsc --noEmit
-
+> npx tsc --noEmit
 (no output = 0 errors)
 ```
-✅ PASS
-
-### build
-
-```
-> marbou-backend@1.0.0 build
-> tsc -p .
-
-(no output = success)
-```
-✅ PASS
+Exit code: 0 ✅
 
 ### lint
 
 ```
-> marbou-backend@1.0.0 lint
-> eslint src test
-
-test/slice1.test.ts
-  3:62  warning  'loginUser' is defined but never used
-  6:10  warning  'storage' is defined but never used
-  165:13 warning  'accessToken' is assigned a value but never used
-  195:26 warning  'refreshToken' is assigned a value but never used
-
-✖ 4 problems (0 errors, 4 warnings in existing test file — unused imports)
+✖ 13 problems (0 errors, 13 warnings)
 ```
-✅ PASS (0 errors, 4 warnings in existing test file)
+Exit code: 0 ✅
 
-### prisma migrate status (test DB)
+### Vitest
 
 ```
-Migrations baselined:
-  20241120000001_init  — applied
-  20241120000002_extras — applied
+Test Files  3 passed (3)
+Tests       146 passed (146)
 ```
-✅ PASS
+Exit code: 0 ✅
 
-### npm test
+---
+
+## Slice 1 — Fix Round 2
+
+### Vitest
 
 ```
-> marbou-backend@1.0.0 test
-> vitest run
-
- RUN  v2.1.8
-
- Test Files  2 passed (2)
-       Tests  66 passed (66)
-    Start at  10:51:34
-    Duration  104.95s
+Test Files  2 passed (2)
+Tests       66 passed (66)
+Duration    104.95s
 ```
-✅ PASS — 66/66 tests green
-
-### Newman
-
-Newman not executed — not installed in this environment.
-Collection generated at `postman/marbou.postman_collection.json`.
-Environment at `postman/local.postman_environment.json`.
+Exit code: 0 ✅
