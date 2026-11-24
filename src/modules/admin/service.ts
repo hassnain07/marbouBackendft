@@ -11,7 +11,8 @@ import { audit } from '../../shared/audit';
 import { settings } from '../../shared/settings';
 import type { AdminRole } from '@prisma/client';
 
-const BCRYPT_ROUNDS = 12;
+import { env, isProd } from '../../config/env';
+const BCRYPT_ROUNDS = env.BCRYPT_ROUNDS;
 const ACCESS_TTL = '30m';
 
 // ─── MFA token single-use (in-memory, single-instance) ────────────────────────
@@ -72,10 +73,13 @@ async function checkAdminLockout(email: string): Promise<void> {
     delaysMin: [1, 5, 15, 60],
   });
   const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
-  const lastSuccess = await db.auditLog.findFirst({
-    where: { actorId: email, action: 'ADMIN_LOGIN' },
-    orderBy: { id: 'desc' },
-  });
+  const adminRow = await db.adminUser.findUnique({ where: { email }, select: { id: true } });
+  const lastSuccess = adminRow
+    ? await db.auditLog.findFirst({
+        where: { actorId: adminRow.id, action: 'ADMIN_LOGIN' },
+        orderBy: { id: 'desc' },
+      })
+    : null;
   const failsSince = lastSuccess ? lastSuccess.createdAt : since24h;
   const fails = await db.auditLog.count({
     where: {

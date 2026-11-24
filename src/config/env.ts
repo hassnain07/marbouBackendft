@@ -49,6 +49,8 @@ const envSchema = z.object({
   SEED_ADMIN_PASSWORD: z.string().default('Admin#12345'),
   SEED_DEMO_ADMINS: z.string().optional(),
 
+  BCRYPT_ROUNDS: z.coerce.number().int().min(4).max(15).default(12),
+
   ANALYTICS_SALT: z.string().default('analytics-salt'),
   ADMIN_TOTP_ENC_KEY: z.string().min(1),
 

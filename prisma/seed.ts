@@ -4,6 +4,8 @@ import dotenv from 'dotenv';
 import { SUDAN_STATES, CITIES_BY_STATE, NEIGHBORHOODS_BY_CITY, CATEGORY_SPEC } from './seed-data';
 dotenv.config();
 
+const BCRYPT_ROUNDS = parseInt(process.env.BCRYPT_ROUNDS ?? '12', 10);
+
 const db = new PrismaClient();
 
 const DEFAULTS: Record<string, unknown> = {
@@ -97,7 +99,7 @@ async function seedAdmins() {
   console.log('Seeding admin users...');
   const adminEmail = process.env.SEED_ADMIN_EMAIL ?? 'admin@marbou.test';
   const adminPassword = process.env.SEED_ADMIN_PASSWORD ?? 'Admin#12345';
-  const passwordHash = await bcrypt.hash(adminPassword, 12);
+  const passwordHash = await bcrypt.hash(adminPassword, BCRYPT_ROUNDS);
 
   await db.adminUser.upsert({
     where: { email: adminEmail },

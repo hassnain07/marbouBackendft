@@ -2756,7 +2756,7 @@
             "url": "{{baseUrl}}/admin/auth/login",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"email\": \"nobody.admin@marbou.test\",\n  \"password\": \"WrongAdminPass1\"\n}",
+              "raw": "{\n  \"email\": \"nobody.admin.{{runId}}@marbou.test\",\n  \"password\": \"WrongAdminPass1\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -3510,7 +3510,7 @@
                 "exec": [
                   "pm.test(\"status 200\", () => pm.expect([200]).to.include(pm.response.code));",
                   "const _walk = (nodes, fn) => { for (const n of nodes) { fn(n); if (Array.isArray(n.children)) _walk(n.children, fn); } };",
-                  "const _arr = (b) => Array.isArray(b) ? b : (b.data || b.items || []);",
+                  "const _arr = (b) => Array.isArray(b) ? b : (b.data || b.items || b.categories || []);",
                   "const etag = pm.response.headers.get(\"ETag\"); pm.test(\"has ETag\", () => pm.expect(etag).to.be.ok); pm.environment.set(\"catTreeEtag\", etag);",
                   "const slugs = []; let root = null; _walk(_arr(pm.response.json()), n => { slugs.push(n.slug); if (n.slug === \"pm-vehicles-\" + pm.environment.get(\"runId\")) root = n; });",
                   "pm.test(\"new category is listed\", () => pm.expect(slugs).to.include(\"pm-cars-\" + pm.environment.get(\"runId\")));",

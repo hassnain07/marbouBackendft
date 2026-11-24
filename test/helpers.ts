@@ -2,6 +2,9 @@ import request from 'supertest';
 import { createApp } from '../src/app';
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
+import { env } from '../src/config/env';
+
+const BCRYPT_ROUNDS = env.BCRYPT_ROUNDS;
 
 // Point to test DB
 process.env.DATABASE_URL = process.env.DATABASE_URL?.replace(/\/marbou(\?|$)/, '/marbou_test$1');
@@ -104,7 +107,7 @@ export async function createTestUser(overrides: Partial<{
   email: string; password: string; fullName: string; verified: boolean;
 }> = {}) {
   const email = overrides.email ?? `user_${Date.now()}@test.com`;
-  const passwordHash = await bcrypt.hash(overrides.password ?? 'Password1', 12);
+  const passwordHash = await bcrypt.hash(overrides.password ?? 'Password1', BCRYPT_ROUNDS);
   const user = await db.user.create({
     data: {
       email,
@@ -131,7 +134,7 @@ export async function createAndLoginUser(overrides?: Parameters<typeof createTes
 
 export async function createTestAdmin(role: 'SUPER_ADMIN' | 'CONTENT_MODERATOR' | 'SUPPORT_AGENT' | 'FINANCIAL_AUDITOR' = 'SUPER_ADMIN') {
   const email = `admin_${Date.now()}@test.com`;
-  const passwordHash = await bcrypt.hash('Admin#12345', 12);
+  const passwordHash = await bcrypt.hash('Admin#12345', BCRYPT_ROUNDS);
   return db.adminUser.create({
     data: { email, passwordHash, fullName: 'Test Admin', role },
   });
