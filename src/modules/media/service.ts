@@ -1,5 +1,4 @@
 import fs from 'fs';
-import path from 'path';
 import { randomUUID } from 'crypto';
 import { db } from '../../shared/db';
 import { storage } from '../../shared/storage';

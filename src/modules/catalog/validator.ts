@@ -122,8 +122,12 @@ export async function buildValidator(categoryId: string, partial = false, stored
   if (partial && storedAttrs) {
     for (const [key, storedVal] of Object.entries(storedAttrs)) {
       if (!shape[key]) {
-        // Archived or unknown key — only accept if value matches stored
-        shape[key] = z.literal(storedVal as never).optional();
+        // Archived or unknown key — deep-equal check (handles MULTI_SELECT arrays, objects, primitives)
+        const stored = storedVal;
+        shape[key] = z.unknown().refine(
+          (v) => v === undefined || JSON.stringify(v) === JSON.stringify(stored),
+          { message: 'Archived attribute value must match stored value' },
+        ).optional();
       }
     }
   }

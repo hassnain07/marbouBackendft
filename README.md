@@ -209,7 +209,63 @@ gunzip -c backup_YYYYMMDD.sql.gz | psql $DATABASE_URL
 | `GET /api/v1/me/listings?status=&cursor=&limit=` | Paginated `{data, nextCursor}` |
 | `GET /api/v1/me/drafts?cursor=&limit=` | Same shape |
 
-## Known Limits (Slice 1)
+## Slice 3 — Discover + Talk
+
+### Search
+
+| Endpoint | Notes |
+|---|---|
+| `GET /api/v1/search` | Full-text + filters + geo + relevance sort; offset cursor with `asOf` stability |
+| `GET /api/v1/search/suggest?q=` | Top 5 title/category matches, cached 30s |
+| `GET /api/v1/home` | Banners (placeholder), categories, recent 12, popular 12, nearby when lat/lng |
+| `GET /api/v1/nearby` | Distance-sorted listings within radiusKm |
+| `GET /api/v1/recommendations` | Based on last 5 search categories + favorites |
+| `GET /api/v1/compare?ids=` | 2-4 listings, same root category with supportsCompare |
+| `GET /api/v1/listings/:id/similar` | Same category, price ±30% |
+| `GET /api/v1/listings/:id/price-insight` | Median/lo/hi/label from comparables, cached 10min |
+
+### Favorites & Saved Searches
+
+| Endpoint | Notes |
+|---|---|
+| `POST/DELETE /api/v1/listings/:id/favorite` | Idempotent; maintains favoriteCount |
+| `GET /api/v1/me/favorites` | Paginated; priceDropped flag; unavailable items as `{id, unavailable:true}` |
+| `GET/POST/PATCH/DELETE /api/v1/saved-searches` | Max 20; INSTANT matching on listing activation |
+
+### Chat (REST + WebSocket)
+
+```bash
+# Connect to socket
+const socket = io('http://localhost:4000/chat', { auth: { token: '<accessToken>' } });
+socket.emit('thread:join', '<threadId>', (ack) => console.log(ack));
+socket.emit('message:send', { threadId, type: 'TEXT', body: 'Hello' }, (ack) => console.log(ack));
+```
+
+| Endpoint | Notes |
+|---|---|
+| `POST /api/v1/threads` | getOrCreate; 201 new / 200 existing |
+| `GET /api/v1/threads` | Inbox ordered by lastMessageAt |
+| `GET /api/v1/threads/:id/messages` | ?after= / ?before= cursor |
+| `GET /api/v1/threads/unread-count` | `{count, byThread}` |
+| `POST /api/v1/threads/:id/messages` | Idempotency-Key header or body field |
+| `POST /api/v1/threads/:id/offers` | One PENDING offer per thread |
+| `POST /api/v1/offers/:id/accept\|reject\|counter` | Non-offering participant only |
+| `GET/POST/PATCH/DELETE /api/v1/me/quick-replies` | Max 20 |
+
+### Notifications
+
+| Endpoint | Notes |
+|---|---|
+| `GET /api/v1/notifications` | Paginated; ?unread=true; localized by Accept-Language |
+| `GET /api/v1/notifications/unread-count` | `{count}` |
+| `POST /api/v1/notifications/:id/read` | Own only |
+| `POST /api/v1/notifications/read-all` | Marks all read |
+
+> **Note:** pg_trgm must be enabled for similarity search: `CREATE EXTENSION IF NOT EXISTS pg_trgm;`
+
+---
+
+## Known Limits (Slice 1-2)
 
 - No media upload, listings, search, chat, notifications, bookings, jobs, payments yet (Slices 2–5).
 - Dormant engines (M18) return 404 — flags exist but no routes.

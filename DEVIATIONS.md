@@ -40,7 +40,19 @@ File 03 (Fast-Track Simplification) overrides 01 and 02 where they conflict.
 | No server-side video poster extraction — `videoPosterUrl` set by client via `posterMediaId` | File 03 §1 cut #10: client compresses and extracts poster |
 | Geo autocomplete deferred — `/geo/autocomplete` not implemented | Slice 3+; trigram search sufficient at launch |
 
-## API / Features
+## Slice 3 — Discover + Talk
+
+| Deviation | Reason |
+|---|---|
+| Area unit conversion (sqm ↔ sqft) not implemented | Deferred; Sudan market uses sqm only |
+| DAILY saved-search digest is minimal (no diff from last run) | Full diff requires storing last result set; deferred to Slice 5 |
+| Business inbox (multi-staff threads) deferred | BusinessProfile table arrives in Slice 4 |
+| Moderator access to reported threads deferred | Report table arrives in Slice 5 |
+| FCM real delivery untested | firebase-admin loaded lazily via require(); no test account available; console driver used in dev/test |
+| Catalog taxonomy is a starter set | seed-data.ts contains representative categories; full PRD taxonomy deferred |
+| Gedaref City was incorrectly under Kassala in seed-data.ts | Fixed: Gedaref City is now under Gedaref state; Kassala City renamed to distinguish from state |
+| pg_trgm extension required for similarity() in search | Must be enabled on the DB: `CREATE EXTENSION IF NOT EXISTS pg_trgm;` — search falls back gracefully if not installed |
+| Search offset cursor (not keyset) | Consistent with Slice 1-2 pagination approach |
 
 | Deviation | Reason |
 |---|---|

@@ -102,6 +102,59 @@ const MESSAGES: Record<string, LangMap> = {
   CONTACT_UNAVAILABLE: { ar: 'معلومات التواصل غير متوفرة', en: 'Contact info not available' },
   REVEAL_LIMIT: { ar: 'تجاوزت حد الكشف عن معلومات التواصل اليومي', en: 'Daily contact reveal limit reached' },
 
+  // Slice 3 — Search / Favorites
+  SAVED_SEARCH_NOT_FOUND: { ar: 'البحث المحفوظ غير موجود', en: 'Saved search not found' },
+  SAVED_SEARCH_LIMIT: { ar: 'وصلت إلى الحد الأقصى للبحوث المحفوظة', en: 'Saved search limit reached' },
+  SAVED_SEARCH_NAME_REQUIRED: { ar: 'اسم البحث مطلوب', en: 'Search name is required' },
+  COMPARE_COUNT: { ar: 'يجب اختيار 2-4 إعلانات للمقارنة', en: 'Select 2-4 listings to compare' },
+  COMPARE_MISMATCH: { ar: 'الإعلانات يجب أن تكون من نفس الفئة الجذرية', en: 'Listings must be from the same root category' },
+  COMPARE_NOT_SUPPORTED: { ar: 'هذه الفئة لا تدعم المقارنة', en: 'This category does not support compare' },
+  SORT_REQUIRES_LOCATION: { ar: 'الترتيب بالمسافة يتطلب إحداثيات', en: 'Distance sort requires coordinates' },
+
+  // Slice 3 — Chat
+  LISTING_UNAVAILABLE: { ar: 'الإعلان غير متاح', en: 'Listing is not available' },
+  CANNOT_MESSAGE_SELF: { ar: 'لا يمكنك مراسلة نفسك', en: 'Cannot message yourself' },
+  CHAT_DISABLED: { ar: 'المحادثة معطلة لهذا الإعلان', en: 'Chat is disabled for this listing' },
+  CANNOT_MESSAGE_USER: { ar: 'لا يمكنك مراسلة هذا المستخدم', en: 'Cannot message this user' },
+  MESSAGE_RATE_LIMIT: { ar: 'تجاوزت حد الرسائل، حاول لاحقاً', en: 'Message rate limit exceeded' },
+  MESSAGE_BLOCKED: { ar: 'الرسالة تحتوي على محتوى محظور', en: 'Message contains blocked content' },
+  OFFER_PENDING: { ar: 'يوجد عرض معلق بالفعل', en: 'An offer is already pending' },
+  OFFER_NOT_PENDING: { ar: 'العرض ليس في حالة انتظار', en: 'Offer is not pending' },
+  THREAD_NOT_FOUND: { ar: 'المحادثة غير موجودة', en: 'Thread not found' },
+  MESSAGE_NOT_FOUND: { ar: 'الرسالة غير موجودة', en: 'Message not found' },
+  OFFER_NOT_FOUND: { ar: 'العرض غير موجود', en: 'Offer not found' },
+  QUICK_REPLY_NOT_FOUND: { ar: 'الرد السريع غير موجود', en: 'Quick reply not found' },
+  QUICK_REPLY_LIMIT: { ar: 'وصلت إلى الحد الأقصى للردود السريعة', en: 'Quick reply limit reached' },
+  OFFER_CURRENCY_MISMATCH: { ar: 'عملة العرض يجب أن تطابق عملة الإعلان', en: 'Offer currency must match listing currency' },
+  MEDIA_ALREADY_ATTACHED: { ar: 'الملف مرتبط بالفعل', en: 'Media already attached' },
+
+  // Slice 3 — Notifications
+  NOTIFICATION_NOT_FOUND: { ar: 'الإشعار غير موجود', en: 'Notification not found' },
+
+  // Notification templates (notif.<type>)
+  'notif.new_message': { ar: 'رسالة جديدة من {senderName}', en: 'New message from {senderName}' },
+  'notif.new_message.body': { ar: '{preview}', en: '{preview}' },
+  'notif.new_offer': { ar: 'عرض سعر جديد', en: 'New price offer' },
+  'notif.new_offer.body': { ar: 'عرض بـ {amount} {currency} على إعلانك', en: 'Offer of {amount} {currency} on your listing' },
+  'notif.offer_accepted': { ar: 'تم قبول عرضك', en: 'Your offer was accepted' },
+  'notif.offer_accepted.body': { ar: 'تم الاتفاق على {amount} {currency}', en: 'Agreed price: {amount} {currency}' },
+  'notif.offer_rejected': { ar: 'تم رفض عرضك', en: 'Your offer was rejected' },
+  'notif.offer_rejected.body': { ar: 'رفض البائع عرضك', en: 'The seller rejected your offer' },
+  'notif.offer_countered': { ar: 'عرض مضاد', en: 'Counter offer received' },
+  'notif.offer_countered.body': { ar: 'عرض مضاد بـ {amount} {currency}', en: 'Counter offer of {amount} {currency}' },
+  'notif.listing_published': { ar: 'تم نشر إعلانك', en: 'Your listing is live' },
+  'notif.listing_published.body': { ar: 'إعلانك "{title}" أصبح نشطاً', en: 'Your listing "{title}" is now active' },
+  'notif.listing_expiring': { ar: 'إعلانك على وشك الانتهاء', en: 'Your listing is expiring soon' },
+  'notif.listing_expiring.body': { ar: 'إعلان "{title}" ينتهي خلال {days} يوم', en: 'Listing "{title}" expires in {days} day(s)' },
+  'notif.listing_status': { ar: 'تغيّر حالة إعلانك', en: 'Your listing status changed' },
+  'notif.listing_status.body': { ar: 'إعلان "{title}": {reason}', en: 'Listing "{title}": {reason}' },
+  'notif.saved_search_match': { ar: 'إعلان جديد يطابق بحثك', en: 'New listing matches your search' },
+  'notif.saved_search_match.body': { ar: 'بحث "{name}": {title}', en: 'Search "{name}": {title}' },
+  'notif.price_drop': { ar: 'انخفض سعر إعلان في مفضلتك', en: 'Price dropped on a favorited listing' },
+  'notif.price_drop.body': { ar: '"{title}" الآن بـ {newPrice} {currency}', en: '"{title}" now {newPrice} {currency}' },
+  'notif.listing_unavailable': { ar: 'إعلان في مفضلتك لم يعد متاحاً', en: 'A favorited listing is no longer available' },
+  'notif.listing_unavailable.body': { ar: '"{title}" أصبح غير متاح', en: '"{title}" is no longer available' },
+
   // OTP email templates
   OTP_EMAIL_SUBJECT_REGISTER: { ar: 'رمز التحقق من مربو', en: 'Your MARBOU verification code' },
   OTP_EMAIL_SUBJECT_RESET: { ar: 'إعادة تعيين كلمة المرور - مربو', en: 'Reset your MARBOU password' },
@@ -110,6 +163,10 @@ const MESSAGES: Record<string, LangMap> = {
 
 export function getMessage(code: string, lang: 'ar' | 'en'): string | undefined {
   return MESSAGES[code]?.[lang];
+}
+
+export function renderTemplate(template: string, vars: Record<string, string | number>): string {
+  return template.replace(/\{(\w+)\}/g, (_, k) => String(vars[k] ?? ''));
 }
 
 export function getOtpEmailTemplate(

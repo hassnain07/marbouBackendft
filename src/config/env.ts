@@ -51,6 +51,9 @@ const envSchema = z.object({
 
   BCRYPT_ROUNDS: z.coerce.number().int().min(4).max(15).default(12),
 
+  PUSH_DRIVER: z.enum(['console', 'fcm']).default('console'),
+  FCM_SERVICE_ACCOUNT: z.string().optional(),
+
   ANALYTICS_SALT: z.string().default('analytics-salt'),
   ADMIN_TOTP_ENC_KEY: z.string().min(1),
 

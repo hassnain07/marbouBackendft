@@ -6,8 +6,6 @@ import { settings } from '../../shared/settings';
 import { buildValidator } from '../catalog/validator';
 import { computeQuality } from './quality';
 import { assertCanPublish, resolveStatus, cleanText, buildSearchText, computeJitterFixed } from './create';
-import type { ListingStatus } from '@prisma/client';
-
 // ─── PATCH listing ────────────────────────────────────────────────────────────
 
 const LOCKED_STATUSES = ['SUSPENDED'] as const;
@@ -122,6 +120,14 @@ export async function patchListing(
       data: { type: 'listing_edited', listingId, userId: requesterId, props: { fields: changedFields } as never },
     });
     setImmediate(() => { import('./scan').then((m) => m.scanListing(listingId)).catch(() => {}); });
+    // Price drop hook
+    if (data.price !== undefined && listing.price !== null) {
+      const oldP = Number(listing.price);
+      const newP = Number(data.price);
+      if (newP < oldP && listing.currency === (data.currency ?? listing.currency)) {
+        setImmediate(() => { import('./hooks').then((m) => m.onListingPriceChanged(listingId, oldP, newP)).catch(() => {}); });
+      }
+    }
   }
 
   return { id: updated.id, status: updated.status };
@@ -153,6 +159,7 @@ export async function publishListing(requesterId: string, listingId: string) {
 
   await db.analyticsEvent.create({ data: { type: 'listing_published', listingId, userId: requesterId, props: {} as never } });
   setImmediate(() => { import('./scan').then((m) => m.scanListing(listingId)).catch(() => {}); });
+  setImmediate(() => { import('./hooks').then((m) => m.onListingActivated(listingId)).catch(() => {}); });
 
   return { id: updated.id, status: updated.status, readableId: `MARBOU-${String(updated.publicSeq).padStart(5, '0')}` };
 }
@@ -194,6 +201,7 @@ export async function renewListing(requesterId: string, listingId: string) {
     });
   });
 
+  setImmediate(() => { import('./hooks').then((m) => m.onListingActivated(listingId)).catch(() => {}); });
   return { id: updated.id, status: updated.status, expiresAt: updated.expiresAt };
 }
 
@@ -208,6 +216,7 @@ export async function markSold(requesterId: string, listingId: string) {
     where: { id: listingId },
     data: { status: 'SOLD', soldAt: new Date() },
   });
+  setImmediate(() => { import('./hooks').then((m) => m.onListingStatusChanged(listingId, 'ACTIVE', 'SOLD')).catch(() => {}); });
   return { id: updated.id, status: updated.status };
 }
 
@@ -221,6 +230,7 @@ export async function archiveListing(requesterId: string, listingId: string) {
   if (listing.ownerId !== requesterId) throw E.forbidden();
   if (!ARCHIVABLE.includes(listing.status as never)) throw E.rule('LISTING_NOT_EDITABLE');
   const updated = await db.listing.update({ where: { id: listingId }, data: { status: 'ARCHIVED' } });
+  setImmediate(() => { import('./hooks').then((m) => m.onListingStatusChanged(listingId, listing.status, 'ARCHIVED')).catch(() => {}); });
   return { id: updated.id, status: updated.status };
 }
 

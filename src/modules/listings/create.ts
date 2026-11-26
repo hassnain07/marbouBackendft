@@ -330,6 +330,7 @@ export async function createListing(ownerId: string, input: CreateListingInput) 
   if (shouldPublish) {
     await db.analyticsEvent.create({ data: { type: 'listing_published', listingId: listing.id, userId: ownerId, props: {} as never } });
     setImmediate(() => { import('./scan').then((m) => m.scanListing(listing.id)).catch(() => {}); });
+    setImmediate(() => { import('./hooks').then((m) => m.onListingActivated(listing.id)).catch(() => {}); });
   }
 
   return {

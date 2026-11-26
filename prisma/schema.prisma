@@ -92,6 +92,25 @@ enum PlaceLevel {
   NEIGHBORHOOD
 }
 
+enum SavedSearchFrequency {
+  INSTANT
+  DAILY
+}
+
+enum ChatMessageType {
+  TEXT
+  IMAGE
+  OFFER
+  SYSTEM
+}
+
+enum OfferStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  COUNTERED
+}
+
 // ─── Identity & Access ───────────────────────────────────────────────────────
 
 model User {
@@ -117,6 +136,7 @@ model User {
   badges               String[]        @default([])
   notifPrefs           Json            @default("{}")
   deviceTokens         Json            @default("[]")
+  quickReplies         Json            @default("[]")
   employerProfile      Json?
   serviceProfile       Json?
   ratingAvg            Float           @default(0)
@@ -140,6 +160,12 @@ model User {
   blocksReceived       BlockedUser[]   @relation("blocked")
   analyticsEvents      AnalyticsEvent[]
   listings             Listing[]
+  favorites            Favorite[]
+  savedSearches        SavedSearch[]
+  chatThreadsBuyer     ChatThread[]    @relation("buyer")
+  chatThreadsSeller    ChatThread[]    @relation("seller")
+  chatMessages         ChatMessage[]
+  notifications        Notification[]
 
   @@index([email])
   @@index([status])
@@ -505,6 +531,8 @@ model Listing {
   category          Category      @relation(fields: [categoryId], references: [id])
   media             ListingMedia[]
   views             ListingView[]
+  favorites         Favorite[]
+  chatThreads       ChatThread[]
 
   @@index([categoryId, status, publishedAt(sort: Desc)])
   @@index([ownerId, status])
@@ -541,4 +569,126 @@ model ListingView {
 
   @@unique([listingId, viewerKey, day])
   @@index([listingId])
+}
+
+// ─── Slice 3: Discover + Talk ─────────────────────────────────────────────────
+
+model Favorite {
+  userId      String
+  listingId   String
+  priceAtSave Decimal?  @db.Decimal(18, 2)
+  createdAt   DateTime  @default(now())
+
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  listing     Listing   @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@id([userId, listingId])
+  @@index([userId])
+  @@index([listingId])
+}
+
+model SavedSearch {
+  id             String               @id @default(uuid())
+  userId         String
+  name           String
+  query          Json                 @default("{}")
+  frequency      SavedSearchFrequency @default(INSTANT)
+  lastNotifiedAt DateTime?
+  createdAt      DateTime             @default(now())
+
+  user           User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model SearchLog {
+  id          String   @id @default(uuid())
+  userId      String?
+  deviceHash  String
+  q           String   @default("")
+  filters     Json     @default("{}")
+  resultCount Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt(sort: Desc)])
+  @@index([userId])
+}
+
+model ChatThread {
+  id              String    @id @default(uuid())
+  listingId       String?
+  buyerId         String
+  sellerId        String
+  businessId      String?
+  lastMessageAt   DateTime?
+  isMutedByBuyer  Boolean   @default(false)
+  isMutedBySeller Boolean   @default(false)
+  closedReason    String?
+  createdAt       DateTime  @default(now())
+
+  buyer           User         @relation("buyer", fields: [buyerId], references: [id])
+  seller          User         @relation("seller", fields: [sellerId], references: [id])
+  listing         Listing?     @relation(fields: [listingId], references: [id])
+  messages        ChatMessage[]
+  offers          Offer[]
+
+  @@unique([listingId, buyerId, sellerId])
+  @@index([buyerId])
+  @@index([sellerId])
+  @@index([lastMessageAt(sort: Desc)])
+}
+
+model ChatMessage {
+  id               String          @id @default(uuid())
+  threadId         String
+  senderId         String
+  type             ChatMessageType @default(TEXT)
+  body             String?
+  attachmentUrl    String?
+  idempotencyKey   String
+  sentAt           DateTime        @default(now())
+  deliveredAt      DateTime?
+  readAt           DateTime?
+  handledByStaffId String?
+
+  thread           ChatThread      @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  sender           User            @relation(fields: [senderId], references: [id])
+  offer            Offer?
+
+  @@unique([senderId, idempotencyKey])
+  @@index([threadId, sentAt])
+}
+
+model Offer {
+  id          String      @id @default(uuid())
+  threadId    String
+  messageId   String      @unique
+  offeredById String
+  amount      Decimal     @db.Decimal(18, 2)
+  currency    String      @default("SDG")
+  status      OfferStatus @default(PENDING)
+  counterOfId String?
+  createdAt   DateTime    @default(now())
+
+  thread      ChatThread  @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  message     ChatMessage @relation(fields: [messageId], references: [id])
+
+  @@index([threadId])
+}
+
+model Notification {
+  id         String    @id @default(uuid())
+  userId     String
+  type       String
+  title      Json      @default("{}")
+  body       Json      @default("{}")
+  data       Json      @default("{}")
+  dedupeKey  String?
+  readAt     DateTime?
+  createdAt  DateTime  @default(now())
+
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, dedupeKey])
+  @@index([userId, createdAt(sort: Desc)])
 }

@@ -1,4 +1,44 @@
-# AGENT REPORT — Slice 1 + Slice 2 (Fix Rounds 1 & 2)
+# AGENT REPORT — Slice 1 + Slice 2 + Slice 3
+
+---
+
+## Slice 3 — Discover + Talk
+
+| # | Step | Item | Status | Evidence |
+|---|---|---|---|---|
+| 0a | Carry-over | Duplicate imports fixed (admin/service.ts, auth/service.ts) | ✅ Done | Both files had duplicate `import { env }` lines removed |
+| 0b | Carry-over | validator.ts edit mode: deep-equal for archived keys using `z.unknown().refine(JSON.stringify)` | ✅ Done | Handles MULTI_SELECT arrays and nested objects |
+| 0c | Carry-over | seed-data.ts: Gedaref City moved to Gedaref state; Kassala City renamed; Jobs attrs aligned | ✅ Done | employmentType, salaryMin, salaryMax, deadline, requirements, screeningQuestions |
+| 0d | Carry-over | Lint warnings removed from src/ | ✅ Done | 0 errors, 0 warnings after `npx eslint src` |
+| 1 | Schema | Migration 20261123000001 already existed with all Slice 3 tables | ✅ Done | Favorite, SavedSearch, SearchLog, ChatThread, ChatMessage, Offer, Notification; User.quickReplies column |
+| 1 | Settings | New defaults: limits.messagesPerMinute, limits.messagesPerMinutePerRecipient, search.recencyHalfLifeDays | ✅ Done | settings.ts DEFAULTS |
+| 2 | Shared | src/shared/notify.ts: in-app + push + email, dedupe, category prefs, P2002/P2003 silenced | ✅ Done | notify.ts |
+| 2 | Shared | src/shared/push.ts: console driver logs without PII; FCM lazy require() | ✅ Done | push.ts |
+| 2 | Shared | src/modules/listings/hooks.ts: onListingActivated, onListingPriceChanged, onListingStatusChanged | ✅ Done | hooks.ts; wired into create.ts, write.ts, scan.ts |
+| 2 | Shared | PATCH /me/notification-preferences: existing users/routes.ts handles this | ✅ Done | users/routes.ts already has PATCH /me |
+| 3 | Search | src/modules/search/service.ts: searchListings, suggest, getHome, getNearby, getRecommendations, compareListings, getSimilar, getPriceInsight | ✅ Done | Prisma.sql fragments, offset cursor with asOf, block exclusion, relevance formula |
+| 3 | Search | src/modules/search/routes.ts: GET /search, /search/suggest, /home, /nearby, /recommendations, /compare, /listings/:id/similar, /listings/:id/price-insight | ✅ Done | All registered in OpenAPI via defineRoute |
+| 3 | Search | Saved searches CRUD + INSTANT matching via onListingActivated | ✅ Done | POST/PATCH/DELETE /saved-searches; _matchSavedSearches() |
+| 3 | Search | Favorites POST/DELETE /listings/:id/favorite + GET /me/favorites with priceDropped flag | ✅ Done | search/routes.ts; favoriteCount maintained in transaction |
+| 4 | Chat | src/modules/chat/service.ts: getOrCreateThread, getThreads, sendMessage, makeOffer, respondOffer, quickReplies | ✅ Done | Idempotency, rate limits from DB, spam detection, block checks |
+| 4 | Chat | src/modules/chat/routes.ts: all REST endpoints | ✅ Done | POST /threads, GET /threads, GET /threads/:id/messages, offers, quick-replies |
+| 4 | Sockets | src/sockets/chat.ts: initSockets, /chat namespace, JWT auth, thread:join, message:send, typing, message:read | ✅ Done | setRoomChecker/setEmitter wired to chat service |
+| 4 | Sockets | server.ts updated to create http.Server and attach sockets | ✅ Done | exports httpServer |
+| 5 | Notifications | src/modules/notifications/routes.ts: GET /notifications, unread-count, POST read/read-all | ✅ Done | Localized by viewer language |
+| 5 | Notifications | All 11 notification types wired | ✅ Done | new_message, new_offer, offer_accepted/rejected/countered, listing_published, listing_expiring, listing_status, saved_search_match, price_drop, listing_unavailable |
+| 6 | Cron | runExpiryReminders(), runResponseRateJob() exported; daily digest; hourly reminders | ✅ Done | cron.ts |
+| 6 | Docs | DEVIATIONS.md, AGENT_REPORT.md updated | ✅ Done | This file |
+
+### Test results
+- `npx tsc --noEmit`: **0 errors**
+- `npx eslint src`: **0 errors, 0 warnings**
+- `npx vitest run`: **146/146 passed** (3 test files: slice1, slice2, b09-b11)
+
+### Known deviations (Slice 3)
+- pg_trgm must be enabled for similarity() search; falls back gracefully
+- DAILY digest is minimal (no diff tracking)
+- FCM untested (console driver in dev/test)
+- Business inbox deferred to Slice 4
 
 ---
 

@@ -11,8 +11,6 @@ import { settings } from '../../shared/settings';
 import { verifySocialToken } from '../../shared/social';
 import { invalidateSessionCache, invalidateUserSessions } from '../../shared/auth';
 import type { OtpPurpose, OtpChannel } from '@prisma/client';
-
-import { env } from '../../config/env';
 const BCRYPT_ROUNDS = env.BCRYPT_ROUNDS;
 const OTP_TTL_MS = 10 * 60 * 1000;
 const OTP_COOLDOWN_MS = 60 * 1000;

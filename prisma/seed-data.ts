@@ -37,8 +37,7 @@ export const CITIES_BY_STATE: Record<string, { nameAr: string; nameEn: string }[
     { nameAr: 'سواكن', nameEn: 'Suakin' },
   ],
   'Kassala': [
-    { nameAr: 'كسلا', nameEn: 'Kassala' },
-    { nameAr: 'القضارف', nameEn: 'Gedaref City' },
+    { nameAr: 'كسلا', nameEn: 'Kassala City' },
   ],
   'River Nile': [
     { nameAr: 'عطبرة', nameEn: 'Atbara' },
@@ -60,7 +59,7 @@ export const CITIES_BY_STATE: Record<string, { nameAr: string; nameEn: string }[
     { nameAr: 'سنار', nameEn: 'Sennar City' },
   ],
   'Gedaref': [
-    { nameAr: 'القضارف', nameEn: 'Gedaref' },
+    { nameAr: 'القضارف', nameEn: 'Gedaref City' },
   ],
   'Northern': [
     { nameAr: 'دنقلا', nameEn: 'Dongola' },
@@ -230,11 +229,12 @@ export const CATEGORY_SPEC: CatSpec[] = [
   {
     slug: 'jobs', nameAr: 'وظائف', nameEn: 'Jobs', displayOrder: 4,
     attrs: [
-      { key: 'job_type', labelAr: 'نوع الوظيفة', labelEn: 'Job Type', type: 'SINGLE_SELECT', required: true, filterable: true, options: [{ value: 'full_time', labelEn: 'Full Time', labelAr: 'دوام كامل' }, { value: 'part_time', labelEn: 'Part Time', labelAr: 'دوام جزئي' }, { value: 'contract', labelEn: 'Contract', labelAr: 'عقد' }, { value: 'freelance', labelEn: 'Freelance', labelAr: 'عمل حر' }], displayOrder: 1 },
-      { key: 'experience_years', labelAr: 'سنوات الخبرة', labelEn: 'Experience (years)', type: 'NUMBER', rules: { min: 0, max: 50 }, displayOrder: 2 },
-      { key: 'education', labelAr: 'المؤهل العلمي', labelEn: 'Education', type: 'SINGLE_SELECT', options: [{ value: 'high_school', labelEn: 'High School', labelAr: 'ثانوي' }, { value: 'diploma', labelEn: 'Diploma', labelAr: 'دبلوم' }, { value: 'bachelor', labelEn: 'Bachelor', labelAr: 'بكالوريوس' }, { value: 'master', labelEn: 'Master', labelAr: 'ماجستير' }, { value: 'phd', labelEn: 'PhD', labelAr: 'دكتوراه' }], displayOrder: 3 },
-      { key: 'gender', labelAr: 'الجنس', labelEn: 'Gender', type: 'SINGLE_SELECT', options: [{ value: 'male', labelEn: 'Male', labelAr: 'ذكر' }, { value: 'female', labelEn: 'Female', labelAr: 'أنثى' }, { value: 'any', labelEn: 'Any', labelAr: 'كلاهما' }], displayOrder: 4 },
-      { key: 'nationality', labelAr: 'الجنسية', labelEn: 'Nationality', type: 'TEXT', displayOrder: 5 },
+      { key: 'employmentType', labelAr: 'نوع التوظيف', labelEn: 'Employment Type', type: 'SINGLE_SELECT', required: true, filterable: true, options: [{ value: 'full_time', labelEn: 'Full Time', labelAr: 'دوام كامل' }, { value: 'part_time', labelEn: 'Part Time', labelAr: 'دوام جزئي' }, { value: 'contract', labelEn: 'Contract', labelAr: 'عقد' }, { value: 'freelance', labelEn: 'Freelance', labelAr: 'عمل حر' }, { value: 'internship', labelEn: 'Internship', labelAr: 'تدريب' }], displayOrder: 1 },
+      { key: 'salaryMin', labelAr: 'الحد الأدنى للراتب', labelEn: 'Salary Min', type: 'NUMBER', rules: { min: 0 }, displayOrder: 2 },
+      { key: 'salaryMax', labelAr: 'الحد الأقصى للراتب', labelEn: 'Salary Max', type: 'NUMBER', rules: { min: 0 }, displayOrder: 3 },
+      { key: 'deadline', labelAr: 'آخر موعد للتقديم', labelEn: 'Application Deadline', type: 'DATE', displayOrder: 4 },
+      { key: 'requirements', labelAr: 'المتطلبات', labelEn: 'Requirements', type: 'TEXT', displayOrder: 5 },
+      { key: 'screeningQuestions', labelAr: 'أسئلة الفرز', labelEn: 'Screening Questions', type: 'TEXT', displayOrder: 6 },
     ],
   },
   {

@@ -5,13 +5,10 @@ import { authenticator } from 'otplib';
 import { db } from '../../shared/db';
 import { E } from '../../shared/errors';
 import { env, isProd } from '../../config/env';
-import { randomToken } from '../../shared/crypto';
-import { aesEncrypt, aesDecrypt } from '../../shared/crypto';
+import { randomToken, aesEncrypt, aesDecrypt } from '../../shared/crypto';
 import { audit } from '../../shared/audit';
 import { settings } from '../../shared/settings';
 import type { AdminRole } from '@prisma/client';
-
-import { env, isProd } from '../../config/env';
 const BCRYPT_ROUNDS = env.BCRYPT_ROUNDS;
 const ACCESS_TTL = '30m';
 

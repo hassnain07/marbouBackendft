@@ -155,6 +155,16 @@ export async function scanListing(listingId: string): Promise<void> {
     } catch (err2) { console.error('[scan] retry failed for', listingId, err2); }
   }
 
+  // Fire hooks after status change
+  if (newStatus !== prevStatus) {
+    const { onListingActivated, onListingStatusChanged } = await import('./hooks');
+    if (newStatus === 'ACTIVE') {
+      onListingActivated(listingId).catch(() => {});
+    } else {
+      onListingStatusChanged(listingId, prevStatus, newStatus).catch(() => {});
+    }
+  }
+
   if (riskScore >= fraudAlert) {
     await db.analyticsEvent.create({
       data: { type: 'scan_alert', listingId, props: { flags, riskScore } as never },

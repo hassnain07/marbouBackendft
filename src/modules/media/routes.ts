@@ -4,7 +4,7 @@ import fs from 'fs';
 import { z } from 'zod';
 import { defineRoute } from '../../shared/route';
 import { registry } from '../../shared/route';
-import { requireAuth, optionalAuth } from '../../shared/auth';
+import { requireAuth } from '../../shared/auth';
 import { limiters } from '../../shared/rateLimit';
 import { E } from '../../shared/errors';
 import * as svc from './service';
